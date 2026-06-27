@@ -1,0 +1,34 @@
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# 环境变量与密钥
+.env
+.env.local
+*.env.local
+config.yaml
+config.local.yaml
+
+# 编译产物
+server/bin/
+admin/dist/
+admin/node_modules/
+
+# Claude Code 本地指令
+CLAUDE.md
