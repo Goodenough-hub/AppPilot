@@ -1,6 +1,6 @@
 # AppPilot
 
-多 PWA 应用的共享后端 + 管理后台。第一个接入应用是 [FinFlow](../FinFlow/)（个人记账）。
+多 PWA 应用的共享后端 + 管理后台。第一个接入应用是 [FinFlow](https://github.com/Goodenough-hub/FinFlow)（个人记账）。
 
 ## 架构
 
@@ -44,7 +44,3 @@ npm run build     # 输出 dist/
 2. 在 `cmd/cmd.go` 注册新路由组 `/api/v1/blog/*`
 3. 在 admin 加新管理页面 `src/pages/blog/`
 4. 用户表 `app_scope` 字段加新应用名
-
-## Git 提交身份
-
-所有 commit 使用 `Goodenough <2323342501@qq.com>`，已写入 `git config --local`。
