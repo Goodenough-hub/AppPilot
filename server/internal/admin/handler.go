@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -31,6 +32,7 @@ func NewHandler(db *sql.DB, authRepo *auth.Repository, jwtSecret string) *Handle
 func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) {
 	g := rg.Use(middlewares...)
 	{
+		g.GET("/apps", h.listApps)
 		g.GET("/users", h.listUsers)
 		g.POST("/users", h.authH.CreateUser) // 复用 auth.Handler.CreateUser
 		g.DELETE("/users/:id", h.deleteUser)
@@ -41,13 +43,95 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 	}
 }
 
+// listApps 返回所有接入应用的去重列表，从 users.app_scope 聚合，排除 "admin"。
+func (h *Handler) listApps(c *gin.Context) {
+	rows, err := h.db.Query(`SELECT DISTINCT unnest(app_scope) FROM users`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	apps := []string{}
+	for rows.Next() {
+		var app string
+		if err := rows.Scan(&app); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if app == "admin" {
+			continue
+		}
+		apps = append(apps, app)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, apps)
+}
+
 func (h *Handler) listUsers(c *gin.Context) {
+	app := c.Query("app")
 	users, err := h.authRepo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, users)
+	filtered := users[:0]
+	for _, u := range users {
+		if app != "" && !contains(u.AppScope, app) {
+			continue
+		}
+		filtered = append(filtered, u)
+	}
+
+	// 聚合每个用户在当前应用下的交易数和最近活跃时间。
+	// lastActiveAt 取 transactions.created_at 的最大值。
+	type userStat struct {
+		TxCount      int64  `json:"transactionCount"`
+		LastActiveAt *string `json:"lastActiveAt"`
+	}
+	statsMap := map[int64]userStat{}
+	if len(filtered) > 0 {
+		ids := make([]any, len(filtered))
+		for i, u := range filtered {
+			ids[i] = u.ID
+		}
+		query := `SELECT user_id, COUNT(*), MAX(created_at)::text FROM transactions GROUP BY user_id`
+		// transactions 表是 finflow 应用专属，无需再按 app 过滤；
+		// 未来接入新应用时，每个应用一张业务表，此处需要按应用切换查询。
+		rows, err := h.db.Query(query)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		for rows.Next() {
+			var uid int64
+			var s userStat
+			if err := rows.Scan(&uid, &s.TxCount, &s.LastActiveAt); err != nil {
+				rows.Close()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			statsMap[uid] = s
+		}
+		rows.Close()
+	}
+
+	out := make([]gin.H, 0, len(filtered))
+	for _, u := range filtered {
+		s := statsMap[u.ID] // 零值也 OK
+		out = append(out, gin.H{
+			"id":        strconv.FormatInt(u.ID, 10),
+			"username":  u.Username,
+			"role":      u.Role,
+			"appScope":  u.AppScope,
+			"createdAt": u.CreatedAt,
+			"updatedAt": u.UpdatedAt,
+			"stats":     s,
+		})
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) deleteUser(c *gin.Context) {
@@ -125,6 +209,7 @@ func (h *Handler) listUserAccounts(c *gin.Context) {
 }
 
 func (h *Handler) stats(c *gin.Context) {
+	app := c.Query("app")
 	users, err := h.authRepo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -132,19 +217,41 @@ func (h *Handler) stats(c *gin.Context) {
 	}
 	totalTx := 0
 	adminCount, userCount := 0, 0
+	appUserIDs := []int64{}
 	for _, u := range users {
+		if app != "" && !contains(u.AppScope, app) {
+			continue
+		}
 		if u.Role == "admin" {
 			adminCount++
 		} else {
 			userCount++
 		}
+		appUserIDs = append(appUserIDs, u.ID)
 	}
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM transactions`).Scan(&totalTx)
+
+	// 该应用所有用户的交易数与本周活跃用户数。
+	// transactions 表当前只服务于 finflow，未来接入新应用需按应用切换。
+	activeThisWeek := 0
+	if len(appUserIDs) > 0 {
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM transactions`).Scan(&totalTx)
+		// 本周活跃：本周内有过交易创建的用户数
+		weekStart := nowWeekStart()
+		err := h.db.QueryRow(
+			`SELECT COUNT(DISTINCT user_id) FROM transactions WHERE created_at >= $1`,
+			weekStart,
+		).Scan(&activeThisWeek)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"totalUsers":       len(users),
+		"totalUsers":       len(appUserIDs),
 		"totalTransactions": totalTx,
 		"admins":           adminCount,
 		"regularUsers":     userCount,
+		"activeThisWeek":   activeThisWeek,
 	})
 }
 
@@ -156,6 +263,25 @@ func parseIDParam(c *gin.Context, key string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// nowWeekStart 返回本周一 00:00（本地时区）。
+func nowWeekStart() time.Time {
+	now := time.Now()
+	days := int(now.Weekday()) - 1
+	if days < 0 {
+		days = 6
+	}
+	return time.Date(now.Year(), now.Month(), now.Day()-days, 0, 0, 0, 0, now.Location())
 }
 
 var _ = errors.New

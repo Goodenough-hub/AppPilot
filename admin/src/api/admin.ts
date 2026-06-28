@@ -1,5 +1,10 @@
 import { apiClient } from './client'
 
+export interface UserStats {
+  transactionCount: number
+  lastActiveAt: string | null
+}
+
 export interface User {
   id: string
   username: string
@@ -7,6 +12,7 @@ export interface User {
   appScope: string[]
   createdAt: string
   updatedAt: string
+  stats?: UserStats
 }
 
 export interface CreateUserRequest {
@@ -57,10 +63,17 @@ export interface AdminStats {
   totalTransactions: number
   admins: number
   regularUsers: number
+  activeThisWeek?: number
 }
 
-export async function listUsers(): Promise<User[]> {
-  const { data } = await apiClient.get<User[]>('/admin/users')
+export async function listApps(): Promise<string[]> {
+  const { data } = await apiClient.get<string[]>('/admin/apps')
+  return data
+}
+
+export async function listUsers(app?: string): Promise<User[]> {
+  const params = app ? { app } : undefined
+  const { data } = await apiClient.get<User[]>('/admin/users', { params })
   return data
 }
 
@@ -88,7 +101,8 @@ export async function getUserAccounts(id: string): Promise<Account[]> {
   return data
 }
 
-export async function getStats(): Promise<AdminStats> {
-  const { data } = await apiClient.get<AdminStats>('/admin/stats')
+export async function getStats(app?: string): Promise<AdminStats> {
+  const params = app ? { app } : undefined
+  const { data } = await apiClient.get<AdminStats>('/admin/stats', { params })
   return data
 }
