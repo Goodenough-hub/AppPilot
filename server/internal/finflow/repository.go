@@ -146,7 +146,7 @@ func (r *Repository) ListCategories(userID int64) ([]Category, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Category
+	out := []Category{}
 	for rows.Next() {
 		var c Category
 		var parentID sql.NullInt64
@@ -226,7 +226,7 @@ func (r *Repository) ListAccounts(userID int64) ([]Account, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Account
+	out := []Account{}
 	for rows.Next() {
 		var a Account
 		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Icon, &a.ColorHex, &a.InitialBalance, &a.SortOrder, &a.IsSystem, &a.CreatedAt); err != nil {
@@ -288,7 +288,7 @@ func (r *Repository) ListBudgets(userID int64, year, month int) ([]Budget, error
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Budget
+	out := []Budget{}
 	for rows.Next() {
 		var b Budget
 		var catID int64
@@ -343,7 +343,7 @@ func (r *Repository) ListRecurring(userID int64) ([]Recurring, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Recurring
+	out := []Recurring{}
 	for rows.Next() {
 		r, err := scanRecurring(rows.Scan)
 		if err != nil {
@@ -400,7 +400,7 @@ func (r *Repository) ListDueRecurring(userID int64, today string) ([]Recurring, 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Recurring
+	out := []Recurring{}
 	for rows.Next() {
 		r, err := scanRecurring(rows.Scan)
 		if err != nil {
@@ -462,7 +462,7 @@ func scanTransaction(scan scanFn) (*Transaction, error) {
 }
 
 func scanTransactions(rows *sql.Rows) ([]Transaction, error) {
-	var out []Transaction
+	out := []Transaction{}
 	for rows.Next() {
 		t, err := scanTransaction(rows.Scan)
 		if err != nil {
