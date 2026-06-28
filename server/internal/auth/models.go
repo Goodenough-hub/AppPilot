@@ -11,6 +11,7 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"`
 	AppScope     []string  `json:"appScope"`
+	Avatar       string    `json:"avatar"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -27,6 +28,10 @@ type CreateUserRequest struct {
 	AppScope []string `json:"appScope"`
 }
 
+type UpdateAvatarRequest struct {
+	Avatar string `json:"avatar" binding:"required"`
+}
+
 type TokenResponse struct {
 	Token     string   `json:"token"`
 	ExpiresAt int64    `json:"expiresAt"`
@@ -34,6 +39,7 @@ type TokenResponse struct {
 	Role      string   `json:"role"`
 	AppScope  []string `json:"appScope"`
 	Username  string   `json:"username"`
+	Avatar    string   `json:"avatar"`
 }
 
 // NormalizeRole 限制 role 只能是 user 或 admin，默认 user

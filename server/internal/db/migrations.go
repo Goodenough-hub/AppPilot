@@ -102,6 +102,10 @@ CREATE INDEX IF NOT EXISTS idx_recurring_next_date ON recurring_transactions(nex
 `
 
 func Migrate(db *sql.DB) error {
-	_, err := db.Exec(schema)
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	// 增量迁移：老库补列
+	_, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`)
 	return err
 }

@@ -22,6 +22,7 @@ func NewHandler(repo *Repository, jwtSecret string) *Handler {
 func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.POST("/login", h.login)
 	rg.POST("/refresh", h.refresh)
+	rg.PUT("/avatar", h.updateAvatar)
 }
 
 func (h *Handler) login(c *gin.Context) {
@@ -55,6 +56,7 @@ func (h *Handler) login(c *gin.Context) {
 		Role:      u.Role,
 		AppScope:  u.AppScope,
 		Username:  u.Username,
+		Avatar:    u.Avatar,
 	})
 }
 
@@ -91,7 +93,32 @@ func (h *Handler) refresh(c *gin.Context) {
 		Role:      u.Role,
 		AppScope:  u.AppScope,
 		Username:  u.Username,
+		Avatar:    u.Avatar,
 	})
+}
+
+func (h *Handler) updateAvatar(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := userIDVal.(int64)
+	var req UpdateAvatarRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// 限制 avatar 长度（base64 图片约 100KB，预设头像 ID 几十字节）
+	if len(req.Avatar) > 512*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "avatar too large (max 512KB)"})
+		return
+	}
+	if err := h.repo.UpdateAvatar(userID, req.Avatar); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"avatar": req.Avatar})
 }
 
 // CreateUser 由管理员通过 admin API 调用，不在 auth 路由组暴露
@@ -124,6 +151,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		"username":  u.Username,
 		"role":      u.Role,
 		"appScope":  u.AppScope,
+		"avatar":    u.Avatar,
 		"createdAt": u.CreatedAt,
 		"updatedAt": u.UpdatedAt,
 	})
