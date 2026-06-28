@@ -119,13 +119,12 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "seed failed: " + err.Error()})
 		return
 	}
-	token, exp, _ := GenerateToken(u, h.jwtSecret)
-	c.JSON(http.StatusCreated, TokenResponse{
-		Token:     token,
-		ExpiresAt: exp,
-		UserID:    encodeID(u.ID),
-		Role:      u.Role,
-		AppScope:  u.AppScope,
-		Username:  u.Username,
+	c.JSON(http.StatusCreated, gin.H{
+		"id":        encodeID(u.ID),
+		"username":  u.Username,
+		"role":      u.Role,
+		"appScope":  u.AppScope,
+		"createdAt": u.CreatedAt,
+		"updatedAt": u.UpdatedAt,
 	})
 }

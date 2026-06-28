@@ -21,6 +21,8 @@ export default function UsersPage() {
   const [form, setForm] = useState<Form>(initialForm)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [newUserId, setNewUserId] = useState<string | null>(null)
+  const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     listApps()
@@ -49,7 +51,7 @@ export default function UsersPage() {
     setError('')
     setLoading(true)
     try {
-      await createUser({
+      const created = await createUser({
         username: form.username,
         password: form.password,
         role: form.role,
@@ -58,6 +60,10 @@ export default function UsersPage() {
       setForm(initialForm)
       const [u, s] = await Promise.all([listUsers(app), getStats(app)])
       setUsers(u); setStats(s)
+      if (created?.id) {
+        setNewUserId(String(created.id))
+        setTimeout(() => setNewUserId(null), 2000)
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || '创建失败')
     } finally {
@@ -67,11 +73,25 @@ export default function UsersPage() {
 
   const remove = async (id: string, username: string) => {
     if (!confirm(`确认删除用户 ${username}？所有数据将一并删除。`)) return
+    setLeavingIds(prev => new Set(prev).add(id))
     try {
       await deleteUser(id)
-      const [u, s] = await Promise.all([listUsers(app), getStats(app)])
-      setUsers(u); setStats(s)
+      // 等淡出动画结束再移除行
+      setTimeout(async () => {
+        const [u, s] = await Promise.all([listUsers(app), getStats(app)])
+        setUsers(u); setStats(s)
+        setLeavingIds(prev => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }, 250)
     } catch (err: any) {
+      setLeavingIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
       setError(err.response?.data?.error || '删除失败')
     }
   }
@@ -258,12 +278,13 @@ export default function UsersPage() {
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="submit"
-              className="primary"
+              className="primary apple-button-press"
               disabled={loading || !app}
               title={app ? `自动绑定应用：${app}` : '请先选择应用'}
-              style={{ padding: '11px 28px', fontSize: 15 }}
+              style={{ padding: '11px 28px', fontSize: 15, minWidth: 120 }}
             >
-              {loading ? '创建中…' : '创建用户'}
+              {loading && <span className="apple-spinner" />}
+              {loading ? '创建中' : '创建用户'}
             </button>
           </div>
         </form>
@@ -298,8 +319,15 @@ export default function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
-              <tr key={u.id}>
+            {users.map(u => {
+              const isNew = u.id === newUserId
+              const isLeaving = leavingIds.has(u.id)
+              const rowClass = [
+                isNew ? 'apple-row-enter apple-row-highlight' : '',
+                isLeaving ? 'apple-row-leaving' : ''
+              ].filter(Boolean).join(' ')
+              return (
+              <tr key={u.id} className={rowClass}>
                 <td style={{ fontWeight: 500 }}>{u.username}</td>
                 <td>
                   <span style={{
@@ -326,13 +354,15 @@ export default function UsersPage() {
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <Link to={`/admin/users/${u.id}`} style={{ marginRight: 16 }}>查看</Link>
                   <button
-                    className="danger"
+                    className="danger apple-button-press"
                     style={{ padding: '5px 14px', fontSize: 13 }}
                     onClick={() => remove(u.id, u.username)}
+                    disabled={isLeaving}
                   >删除</button>
                 </td>
               </tr>
-            ))}
+              )
+            })}
             {users.length === 0 && (
               <tr>
                 <td colSpan={6} style={{

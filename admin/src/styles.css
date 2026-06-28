@@ -141,3 +141,72 @@ a:hover {
   text-decoration: underline;
   color: var(--primary-hover);
 }
+
+@keyframes apple-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes apple-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes apple-fade-out {
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@keyframes apple-highlight {
+  0% { background: rgba(0, 113, 227, 0.08); }
+  100% { background: transparent; }
+}
+
+.apple-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: apple-spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.apple-row-enter {
+  animation: apple-fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.apple-row-highlight {
+  animation: apple-highlight 1.6s ease-out 0.2s both;
+}
+
+.apple-row-leaving {
+  animation: apple-fade-out 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.apple-card-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+}
+
+.apple-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.apple-button-press {
+  transition: transform 0.1s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.apple-button-press:active:not(:disabled) {
+  transform: scale(0.97);
+}

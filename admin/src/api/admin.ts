@@ -77,8 +77,8 @@ export async function listUsers(app?: string): Promise<User[]> {
   return data
 }
 
-export async function createUser(req: CreateUserRequest) {
-  const { data } = await apiClient.post('/admin/users', req)
+export async function createUser(req: CreateUserRequest): Promise<User> {
+  const { data } = await apiClient.post<User>('/admin/users', req)
   return data
 }
 
