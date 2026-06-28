@@ -9,10 +9,9 @@ interface Form {
   username: string
   password: string
   role: 'user' | 'admin'
-  appScope: string
 }
 
-const initialForm: Form = { username: '', password: '', role: 'user', appScope: 'finflow' }
+const initialForm: Form = { username: '', password: '', role: 'user' }
 
 export default function UsersPage() {
   const [apps, setApps] = useState<string[]>([])
@@ -43,6 +42,10 @@ export default function UsersPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (!app) {
+      setError('请先选择应用')
+      return
+    }
     setError('')
     setLoading(true)
     try {
@@ -50,7 +53,7 @@ export default function UsersPage() {
         username: form.username,
         password: form.password,
         role: form.role,
-        appScope: form.appScope.split(',').map(s => s.trim()).filter(Boolean)
+        appScope: [app]
       })
       setForm(initialForm)
       const [u, s] = await Promise.all([listUsers(app), getStats(app)])
@@ -104,7 +107,7 @@ export default function UsersPage() {
         </div>
       )}
 
-      <form onSubmit={submit} style={{ background: 'var(--surface)', padding: 16, borderRadius: 8, marginBottom: 24, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <form onSubmit={submit} style={{ background: 'var(--surface)', padding: 16, borderRadius: 8, marginBottom: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) auto', gap: 12, alignItems: 'end' }}>
         <div>
           <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-dim)', fontSize: 12 }}>用户名</label>
           <input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} required minLength={3} />
@@ -120,12 +123,9 @@ export default function UsersPage() {
             <option value="admin">管理员</option>
           </select>
         </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-dim)', fontSize: 12 }}>应用范围（逗号分隔）</label>
-          <input value={form.appScope} onChange={e => setForm({ ...form, appScope: e.target.value })} />
-        </div>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <button type="submit" className="primary" disabled={loading}>创建用户</button>
+        <button type="submit" className="primary" disabled={loading || !app} title={app ? `自动绑定应用：${app}` : '请先选择应用'}>创建用户</button>
+        <div style={{ gridColumn: '1 / -1', color: 'var(--text-dim)', fontSize: 12 }}>
+          新用户将自动绑定到当前应用「{app || '—'}」
         </div>
       </form>
 
