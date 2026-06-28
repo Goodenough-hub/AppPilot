@@ -77,88 +77,271 @@ export default function UsersPage() {
   }
 
   const cards = stats ? [
-    { label: '用户数', value: stats.totalUsers, color: 'var(--primary)' },
-    { label: '总交易数', value: stats.totalTransactions, color: 'var(--danger)' },
-    { label: '本周活跃', value: stats.activeThisWeek ?? 0, color: 'var(--success)' },
-    { label: '管理员', value: stats.admins, color: 'var(--warning)' }
+    { label: '用户数', value: stats.totalUsers },
+    { label: '总交易数', value: stats.totalTransactions },
+    { label: '本周活跃', value: stats.activeThisWeek ?? 0 },
+    { label: '管理员', value: stats.admins }
   ] : []
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>用户管理</h1>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+        marginBottom: 40
+      }}>
         <div>
-          <label style={{ marginRight: 8, color: 'var(--text-dim)', fontSize: 13 }}>应用：</label>
-          <select value={app} onChange={e => setApp(e.target.value)} style={{ minWidth: 140 }}>
+          <h1 style={{
+            fontSize: 40,
+            fontWeight: 600,
+            letterSpacing: '-0.025em',
+            marginBottom: 6,
+            lineHeight: 1.1
+          }}>用户管理</h1>
+          <p style={{ color: 'var(--text-dim)', fontSize: 15, letterSpacing: '-0.012em' }}>
+            管理接入应用的用户账户
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>应用</span>
+          <select
+            value={app}
+            onChange={e => setApp(e.target.value)}
+            style={{
+              minWidth: 160,
+              padding: '8px 30px 8px 14px',
+              borderRadius: 980,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              cursor: 'pointer'
+            }}
+          >
             {apps.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
       </div>
-      {error && <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
+
+      {error && (
+        <div style={{
+          color: 'var(--danger)',
+          background: 'rgba(255, 59, 48, 0.08)',
+          padding: '12px 16px',
+          borderRadius: 12,
+          marginBottom: 24,
+          fontSize: 14
+        }}>{error}</div>
+      )}
 
       {cards.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 16,
+          marginBottom: 40
+        }}>
           {cards.map(c => (
-            <div key={c.label} style={{ background: 'var(--surface)', padding: 20, borderRadius: 8 }}>
-              <div style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 8 }}>{c.label}</div>
-              <div style={{ fontSize: 28, fontWeight: 600, color: c.color }}>{c.value}</div>
+            <div key={c.label} style={{
+              background: 'var(--surface)',
+              padding: '28px 24px',
+              borderRadius: 18,
+              border: '1px solid var(--border-soft)',
+              boxShadow: 'var(--shadow)'
+            }}>
+              <div style={{
+                color: 'var(--text-dim)',
+                fontSize: 13,
+                marginBottom: 12,
+                letterSpacing: '-0.005em'
+              }}>{c.label}</div>
+              <div style={{
+                fontSize: 36,
+                fontWeight: 600,
+                color: 'var(--text)',
+                letterSpacing: '-0.03em',
+                fontVariantNumeric: 'tabular-nums'
+              }}>{c.value}</div>
             </div>
           ))}
         </div>
       )}
 
-      <form onSubmit={submit} style={{ background: 'var(--surface)', padding: 16, borderRadius: 8, marginBottom: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) auto', gap: 12, alignItems: 'end' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-dim)', fontSize: 12 }}>用户名</label>
-          <input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} required minLength={3} />
+      <div style={{
+        background: 'var(--surface)',
+        borderRadius: 20,
+        border: '1px solid var(--border-soft)',
+        boxShadow: 'var(--shadow)',
+        marginBottom: 32,
+        overflow: 'hidden'
+      }}>
+        <div style={{
+          padding: '28px 32px 20px',
+          borderBottom: '1px solid var(--border-soft)'
+        }}>
+          <h2 style={{
+            fontSize: 22,
+            fontWeight: 600,
+            letterSpacing: '-0.022em',
+            marginBottom: 4
+          }}>创建新用户</h2>
+          <p style={{
+            color: 'var(--text-dim)',
+            fontSize: 13,
+            letterSpacing: '-0.005em'
+          }}>
+            新用户将自动绑定到当前应用「{app || '—'}」
+          </p>
         </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-dim)', fontSize: 12 }}>密码</label>
-          <input value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={6} />
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-dim)', fontSize: 12 }}>角色</label>
-          <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as 'user' | 'admin' })}>
-            <option value="user">用户</option>
-            <option value="admin">管理员</option>
-          </select>
-        </div>
-        <button type="submit" className="primary" disabled={loading || !app} title={app ? `自动绑定应用：${app}` : '请先选择应用'}>创建用户</button>
-        <div style={{ gridColumn: '1 / -1', color: 'var(--text-dim)', fontSize: 12 }}>
-          新用户将自动绑定到当前应用「{app || '—'}」
-        </div>
-      </form>
+        <form onSubmit={submit} style={{ padding: '24px 32px 32px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: 20,
+            marginBottom: 24
+          }}>
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: 8,
+                color: 'var(--text)',
+                fontSize: 13,
+                fontWeight: 500,
+                letterSpacing: '-0.005em'
+              }}>用户名</label>
+              <input
+                value={form.username}
+                onChange={e => setForm({ ...form, username: e.target.value })}
+                required
+                minLength={3}
+                placeholder="至少 3 个字符"
+                style={{ padding: '12px 16px', fontSize: 15 }}
+              />
+            </div>
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: 8,
+                color: 'var(--text)',
+                fontSize: 13,
+                fontWeight: 500,
+                letterSpacing: '-0.005em'
+              }}>密码</label>
+              <input
+                type="password"
+                value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                required
+                minLength={6}
+                placeholder="至少 6 个字符"
+                style={{ padding: '12px 16px', fontSize: 15 }}
+              />
+            </div>
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: 8,
+                color: 'var(--text)',
+                fontSize: 13,
+                fontWeight: 500,
+                letterSpacing: '-0.005em'
+              }}>角色</label>
+              <select
+                value={form.role}
+                onChange={e => setForm({ ...form, role: e.target.value as 'user' | 'admin' })}
+                style={{ padding: '12px 16px', fontSize: 15, cursor: 'pointer' }}
+              >
+                <option value="user">用户</option>
+                <option value="admin">管理员</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={loading || !app}
+              title={app ? `自动绑定应用：${app}` : '请先选择应用'}
+              style={{ padding: '11px 28px', fontSize: 15 }}
+            >
+              {loading ? '创建中…' : '创建用户'}
+            </button>
+          </div>
+        </form>
+      </div>
 
-      <div style={{ background: 'var(--surface)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{
+        background: 'var(--surface)',
+        borderRadius: 20,
+        border: '1px solid var(--border-soft)',
+        boxShadow: 'var(--shadow)',
+        overflow: 'hidden'
+      }}>
+        <div style={{
+          padding: '24px 32px',
+          borderBottom: '1px solid var(--border-soft)'
+        }}>
+          <h2 style={{
+            fontSize: 19,
+            fontWeight: 600,
+            letterSpacing: '-0.022em'
+          }}>{app ? `${app} 用户` : '用户列表'}</h2>
+        </div>
         <table>
           <thead>
             <tr>
-              <th>ID</th>
               <th>用户名</th>
               <th>角色</th>
-              <th>交易数</th>
+              <th style={{ textAlign: 'right' }}>交易数</th>
               <th>最近活跃</th>
               <th>创建时间</th>
-              <th>操作</th>
+              <th style={{ textAlign: 'right' }}>操作</th>
             </tr>
           </thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id}>
-                <td>{u.id}</td>
-                <td>{u.username}</td>
-                <td>{u.role === 'admin' ? '管理员' : '用户'}</td>
-                <td>{u.stats?.transactionCount ?? 0}</td>
-                <td>{u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}</td>
-                <td>{new Date(u.createdAt).toLocaleString('zh-CN')}</td>
+                <td style={{ fontWeight: 500 }}>{u.username}</td>
                 <td>
-                  <Link to={`/admin/users/${u.id}`}>查看</Link>
-                  <button className="danger" style={{ marginLeft: 8 }} onClick={() => remove(u.id, u.username)}>删除</button>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 10px',
+                    borderRadius: 980,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    background: u.role === 'admin' ? 'rgba(255, 149, 0, 0.12)' : 'var(--surface-2)',
+                    color: u.role === 'admin' ? 'var(--warning)' : 'var(--text-dim)'
+                  }}>
+                    {u.role === 'admin' ? '管理员' : '用户'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  {u.stats?.transactionCount ?? 0}
+                </td>
+                <td style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+                  {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
+                </td>
+                <td style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+                  {new Date(u.createdAt).toLocaleString('zh-CN')}
+                </td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <Link to={`/admin/users/${u.id}`} style={{ marginRight: 16 }}>查看</Link>
+                  <button
+                    className="danger"
+                    style={{ padding: '5px 14px', fontSize: 13 }}
+                    onClick={() => remove(u.id, u.username)}
+                  >删除</button>
                 </td>
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--text-dim)' }}>该应用暂无用户</td></tr>
+              <tr>
+                <td colSpan={6} style={{
+                  textAlign: 'center',
+                  padding: 48,
+                  color: 'var(--text-dim)',
+                  fontSize: 14
+                }}>该应用暂无用户</td>
+              </tr>
             )}
           </tbody>
         </table>

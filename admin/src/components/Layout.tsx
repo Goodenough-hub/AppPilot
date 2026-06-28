@@ -14,35 +14,51 @@ export default function Layout() {
     navigate('/admin/login')
   }
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside style={{ width: 200, background: 'var(--surface)', borderRight: '1px solid var(--border)', padding: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 24 }}>AppPilot</div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
+      <aside style={{
+        width: 220,
+        background: 'var(--surface)',
+        borderRight: '1px solid var(--border-soft)',
+        padding: '32px 20px',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        <div style={{
+          fontWeight: 600,
+          fontSize: 17,
+          marginBottom: 32,
+          letterSpacing: '-0.022em',
+          color: 'var(--text)'
+        }}>AppPilot</div>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
           {navItems.map(item => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               style={({ isActive }) => ({
-                padding: '8px 12px',
-                borderRadius: 6,
-                color: isActive ? 'white' : 'var(--text-dim)',
-                background: isActive ? 'var(--primary)' : 'transparent',
-                textDecoration: 'none'
+                padding: '9px 14px',
+                borderRadius: 10,
+                color: isActive ? 'var(--text)' : 'var(--text-dim)',
+                background: isActive ? 'var(--surface-2)' : 'transparent',
+                textDecoration: 'none',
+                fontWeight: isActive ? 500 : 400,
+                fontSize: 14,
+                transition: 'all 0.15s ease'
               })}
             >
               {item.label}
             </NavLink>
           ))}
         </nav>
-        <div style={{ paddingTop: 24, borderTop: '1px solid var(--border)', marginTop: 200 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
-            {user?.username} ({user?.role})
+        <div style={{ paddingTop: 20, borderTop: '1px solid var(--border-soft)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 10, letterSpacing: '-0.01em' }}>
+            {user?.username} · {user?.role}
           </div>
-          <button onClick={handleLogout} style={{ width: '100%' }}>退出</button>
+          <button onClick={handleLogout} style={{ width: '100%', padding: '7px 14px', fontSize: 13 }}>退出</button>
         </div>
       </aside>
-      <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+      <main style={{ flex: 1, padding: '48px 56px', overflow: 'auto', maxWidth: 1280 }}>
         <Outlet />
       </main>
     </div>
