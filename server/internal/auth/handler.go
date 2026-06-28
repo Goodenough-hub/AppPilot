@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -58,13 +59,22 @@ func (h *Handler) login(c *gin.Context) {
 }
 
 func (h *Handler) refresh(c *gin.Context) {
-	userIDVal, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	header := c.GetHeader("Authorization")
+	if header == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 		return
 	}
-	userID := userIDVal.(int64)
-	u, err := h.repo.FindByID(userID)
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid auth header"})
+		return
+	}
+	claims, err := ParseTokenForRefresh(parts[1], h.jwtSecret)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+	u, err := h.repo.FindByID(claims.UserID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
 		return
