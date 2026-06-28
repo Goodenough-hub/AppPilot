@@ -104,7 +104,7 @@ export default function UsersPage() {
   ] : []
 
   return (
-    <div>
+    <div className="animate-fade-in-up">
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -113,29 +113,20 @@ export default function UsersPage() {
       }}>
         <div>
           <h1 style={{
-            fontSize: 40,
-            fontWeight: 600,
-            letterSpacing: '-0.025em',
-            marginBottom: 6,
-            lineHeight: 1.1
+            fontSize: 32,
+            margin: 0,
+            marginBottom: 8
           }}>用户管理</h1>
-          <p style={{ color: 'var(--text-dim)', fontSize: 15, letterSpacing: '-0.012em' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
             管理接入应用的用户账户
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>应用</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>应用</span>
           <select
             value={app}
             onChange={e => setApp(e.target.value)}
-            style={{
-              minWidth: 160,
-              padding: '8px 30px 8px 14px',
-              borderRadius: 980,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              cursor: 'pointer'
-            }}
+            style={{ width: 160 }}
           >
             {apps.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
@@ -144,12 +135,13 @@ export default function UsersPage() {
 
       {error && (
         <div style={{
-          color: 'var(--danger)',
-          background: 'rgba(255, 59, 48, 0.08)',
+          color: '#FCA5A5',
+          background: 'var(--danger-bg)',
           padding: '12px 16px',
           borderRadius: 12,
           marginBottom: 24,
-          fontSize: 14
+          fontSize: 14,
+          border: '1px solid rgba(239, 68, 68, 0.2)'
         }}>{error}</div>
       )}
 
@@ -157,95 +149,55 @@ export default function UsersPage() {
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 16,
+          gap: 24,
           marginBottom: 40
         }}>
-          {cards.map(c => (
-            <div key={c.label} style={{
-              background: 'var(--surface)',
-              padding: '28px 24px',
-              borderRadius: 18,
-              border: '1px solid var(--border-soft)',
-              boxShadow: 'var(--shadow)'
-            }}>
+          {cards.map((c, i) => (
+            <div key={c.label} className={`glass-panel animate-fade-in-up stagger-${i+1}`} style={{ padding: '24px' }}>
               <div style={{
-                color: 'var(--text-dim)',
+                color: 'var(--text-secondary)',
                 fontSize: 13,
                 marginBottom: 12,
-                letterSpacing: '-0.005em'
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
               }}>{c.label}</div>
               <div style={{
-                fontSize: 36,
-                fontWeight: 600,
-                color: 'var(--text)',
-                letterSpacing: '-0.03em',
-                fontVariantNumeric: 'tabular-nums'
+                fontSize: 32,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                fontFamily: 'Outfit, sans-serif'
               }}>{c.value}</div>
             </div>
           ))}
         </div>
       )}
 
-      <div style={{
-        background: 'var(--surface)',
-        borderRadius: 20,
-        border: '1px solid var(--border-soft)',
-        boxShadow: 'var(--shadow)',
-        marginBottom: 32,
-        overflow: 'hidden'
-      }}>
-        <div style={{
-          padding: '28px 32px 20px',
-          borderBottom: '1px solid var(--border-soft)'
-        }}>
-          <h2 style={{
-            fontSize: 22,
-            fontWeight: 600,
-            letterSpacing: '-0.022em',
-            marginBottom: 4
-          }}>创建新用户</h2>
-          <p style={{
-            color: 'var(--text-dim)',
-            fontSize: 13,
-            letterSpacing: '-0.005em'
-          }}>
-            新用户将自动绑定到当前应用「{app || '—'}」
+      <div className="glass-panel animate-fade-in-up stagger-2" style={{ marginBottom: 32, padding: 32 }}>
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 20, margin: 0, marginBottom: 8 }}>创建新用户</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
+            新用户将自动绑定到当前应用「<span style={{color: 'var(--primary)'}}>{app || '—'}</span>」
           </p>
         </div>
-        <form onSubmit={submit} style={{ padding: '24px 32px 32px' }}>
+        <form onSubmit={submit}>
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 20,
+            gap: 24,
             marginBottom: 24
           }}>
             <div>
-              <label style={{
-                display: 'block',
-                marginBottom: 8,
-                color: 'var(--text)',
-                fontSize: 13,
-                fontWeight: 500,
-                letterSpacing: '-0.005em'
-              }}>用户名</label>
+              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>用户名</label>
               <input
                 value={form.username}
                 onChange={e => setForm({ ...form, username: e.target.value })}
                 required
                 minLength={3}
                 placeholder="至少 3 个字符"
-                style={{ padding: '12px 16px', fontSize: 15 }}
               />
             </div>
             <div>
-              <label style={{
-                display: 'block',
-                marginBottom: 8,
-                color: 'var(--text)',
-                fontSize: 13,
-                fontWeight: 500,
-                letterSpacing: '-0.005em'
-              }}>密码</label>
+              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>密码</label>
               <input
                 type="password"
                 value={form.password}
@@ -253,22 +205,13 @@ export default function UsersPage() {
                 required
                 minLength={6}
                 placeholder="至少 6 个字符"
-                style={{ padding: '12px 16px', fontSize: 15 }}
               />
             </div>
             <div>
-              <label style={{
-                display: 'block',
-                marginBottom: 8,
-                color: 'var(--text)',
-                fontSize: 13,
-                fontWeight: 500,
-                letterSpacing: '-0.005em'
-              }}>角色</label>
+              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>角色</label>
               <select
                 value={form.role}
                 onChange={e => setForm({ ...form, role: e.target.value as 'user' | 'admin' })}
-                style={{ padding: '12px 16px', fontSize: 15, cursor: 'pointer' }}
               >
                 <option value="user">用户</option>
                 <option value="admin">管理员</option>
@@ -278,103 +221,82 @@ export default function UsersPage() {
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="submit"
-              className="primary apple-button-press"
+              className="primary"
               disabled={loading || !app}
               title={app ? `自动绑定应用：${app}` : '请先选择应用'}
-              style={{ padding: '11px 28px', fontSize: 15, minWidth: 120 }}
+              style={{ minWidth: 140 }}
             >
-              {loading && <span className="apple-spinner" />}
-              {loading ? '创建中' : '创建用户'}
+              {loading ? '创建中...' : '创建用户'}
             </button>
           </div>
         </form>
       </div>
 
-      <div style={{
-        background: 'var(--surface)',
-        borderRadius: 20,
-        border: '1px solid var(--border-soft)',
-        boxShadow: 'var(--shadow)',
-        overflow: 'hidden'
-      }}>
-        <div style={{
-          padding: '24px 32px',
-          borderBottom: '1px solid var(--border-soft)'
-        }}>
-          <h2 style={{
-            fontSize: 19,
-            fontWeight: 600,
-            letterSpacing: '-0.022em'
-          }}>{app ? `${app} 用户` : '用户列表'}</h2>
+      <div className="glass-panel animate-fade-in-up stagger-3" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '24px 32px' }}>
+          <h2 style={{ fontSize: 20, margin: 0 }}>{app ? `${app} 用户` : '用户列表'}</h2>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>用户名</th>
-              <th>角色</th>
-              <th style={{ textAlign: 'right' }}>交易数</th>
-              <th>最近活跃</th>
-              <th>创建时间</th>
-              <th style={{ textAlign: 'right' }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => {
-              const isNew = u.id === newUserId
-              const isLeaving = leavingIds.has(u.id)
-              const rowClass = [
-                isNew ? 'apple-row-enter apple-row-highlight' : '',
-                isLeaving ? 'apple-row-leaving' : ''
-              ].filter(Boolean).join(' ')
-              return (
-              <tr key={u.id} className={rowClass}>
-                <td style={{ fontWeight: 500 }}>{u.username}</td>
-                <td>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '2px 10px',
-                    borderRadius: 980,
-                    fontSize: 12,
-                    fontWeight: 500,
-                    background: u.role === 'admin' ? 'rgba(255, 149, 0, 0.12)' : 'var(--surface-2)',
-                    color: u.role === 'admin' ? 'var(--warning)' : 'var(--text-dim)'
-                  }}>
-                    {u.role === 'admin' ? '管理员' : '用户'}
-                  </span>
-                </td>
-                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {u.stats?.transactionCount ?? 0}
-                </td>
-                <td style={{ color: 'var(--text-dim)', fontSize: 13 }}>
-                  {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
-                </td>
-                <td style={{ color: 'var(--text-dim)', fontSize: 13 }}>
-                  {new Date(u.createdAt).toLocaleString('zh-CN')}
-                </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Link to={`/admin/users/${u.id}`} style={{ marginRight: 16 }}>查看</Link>
-                  <button
-                    className="danger apple-button-press"
-                    style={{ padding: '5px 14px', fontSize: 13 }}
-                    onClick={() => remove(u.id, u.username)}
-                    disabled={isLeaving}
-                  >删除</button>
-                </td>
-              </tr>
-              )
-            })}
-            {users.length === 0 && (
+        <div className="table-container">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={6} style={{
-                  textAlign: 'center',
-                  padding: 48,
-                  color: 'var(--text-dim)',
-                  fontSize: 14
-                }}>该应用暂无用户</td>
+                <th>用户名</th>
+                <th>角色</th>
+                <th style={{ textAlign: 'right' }}>交易数</th>
+                <th>最近活跃</th>
+                <th>创建时间</th>
+                <th style={{ textAlign: 'right' }}>操作</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map(u => {
+                const isNew = u.id === newUserId
+                const rowClass = [
+                  isNew ? 'animate-fade-in-up' : ''
+                ].filter(Boolean).join(' ')
+                return (
+                <tr key={u.id} className={rowClass} style={{ opacity: leavingIds.has(u.id) ? 0.3 : 1, transition: 'opacity 0.2s' }}>
+                  <td style={{ fontWeight: 500 }}>{u.username}</td>
+                  <td>
+                    <span className={u.role === 'admin' ? 'badge badge-admin' : 'badge badge-user'}>
+                      {u.role === 'admin' ? '管理员' : '用户'}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>
+                    {u.stats?.transactionCount ?? 0}
+                  </td>
+                  <td style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                    {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
+                  </td>
+                  <td style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                    {new Date(u.createdAt).toLocaleString('zh-CN')}
+                  </td>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <Link to={`/admin/users/${u.id}`} style={{ 
+                      marginRight: 16,
+                      padding: '6px 12px', 
+                      background: 'var(--surface-hover)', 
+                      borderRadius: 6,
+                      fontSize: 12
+                    }}>查看</Link>
+                    <button
+                      className="danger"
+                      style={{ padding: '5px 14px', fontSize: 12 }}
+                      onClick={() => remove(u.id, u.username)}
+                      disabled={leavingIds.has(u.id)}
+                    >删除</button>
+                  </td>
+                </tr>
+                )
+              })}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)', fontSize: 14 }}>该应用暂无用户</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )

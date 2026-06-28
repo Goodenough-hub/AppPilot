@@ -46,6 +46,7 @@ type Account struct {
 	InitialBalance decimal.Decimal `json:"initialBalance"`
 	SortOrder      int       `json:"sortOrder"`
 	IsSystem       bool      `json:"isSystem"`
+	ParentID       *string   `json:"parentId"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 

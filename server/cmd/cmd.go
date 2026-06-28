@@ -14,6 +14,7 @@ import (
 	"apppilot-server/pkg/config"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 func Run() {
@@ -45,6 +46,9 @@ func serveCmd(cfg *config.Config) *cobra.Command {
 }
 
 func serve(cfg *config.Config) error {
+	// decimal 字段（initialBalance/amount 等）以 number 而非 string 输出 JSON
+	decimal.MarshalJSONWithoutQuotes = true
+
 	pg, err := db.NewPostgres(cfg.DSN)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)
@@ -65,6 +69,9 @@ func serve(cfg *config.Config) error {
 	authRepo := auth.NewRepository(pg)
 	authHandler := auth.NewHandler(authRepo, cfg.JWTSecret)
 	authHandler.Register(v1.Group("/auth"))
+	authHandler.RegisterProtected(
+		v1.Group("/auth", middleware.AuthRequired(cfg.JWTSecret)),
+	)
 
 	finflowHandler := finflow.NewHandler(pg)
 	finflowHandler.Register(

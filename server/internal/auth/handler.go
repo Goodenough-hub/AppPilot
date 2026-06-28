@@ -22,6 +22,9 @@ func NewHandler(repo *Repository, jwtSecret string) *Handler {
 func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.POST("/login", h.login)
 	rg.POST("/refresh", h.refresh)
+}
+
+func (h *Handler) RegisterProtected(rg *gin.RouterGroup) {
 	rg.PUT("/avatar", h.updateAvatar)
 }
 

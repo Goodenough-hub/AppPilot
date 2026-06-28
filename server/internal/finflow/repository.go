@@ -185,7 +185,7 @@ func (r *Repository) CreateCategory(userID int64, c Category) (*Category, error)
 func (r *Repository) UpdateCategory(userID, id int64, c Category) (*Category, error) {
 	row := r.db.QueryRow(
 		`UPDATE categories SET name=$3, icon=$4, color_hex=$5, sort_order=$6, parent_id=$7
-		 WHERE id=$1 AND user_id=$2 AND is_system=FALSE
+		 WHERE id=$1 AND user_id=$2
 		 RETURNING id, name, type, icon, color_hex, sort_order, is_system, parent_id, created_at`,
 		id, userID, c.Name, c.Icon, c.ColorHex, c.SortOrder, idPtrToNullInt(c.ParentID),
 	)
@@ -218,7 +218,7 @@ func (r *Repository) DeleteCategory(userID, id int64) error {
 
 func (r *Repository) ListAccounts(userID int64) ([]Account, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, type, icon, color_hex, initial_balance, sort_order, is_system, created_at
+		`SELECT id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id, created_at
 		 FROM accounts WHERE user_id = $1 ORDER BY sort_order, id`,
 		userID,
 	)
@@ -229,8 +229,13 @@ func (r *Repository) ListAccounts(userID int64) ([]Account, error) {
 	out := []Account{}
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Icon, &a.ColorHex, &a.InitialBalance, &a.SortOrder, &a.IsSystem, &a.CreatedAt); err != nil {
+		var parentID sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Icon, &a.ColorHex, &a.InitialBalance, &a.SortOrder, &a.IsSystem, &parentID, &a.CreatedAt); err != nil {
 			return nil, err
+		}
+		if parentID.Valid {
+			s := strconv.FormatInt(parentID.Int64, 10)
+			a.ParentID = &s
 		}
 		out = append(out, a)
 	}
@@ -239,33 +244,54 @@ func (r *Repository) ListAccounts(userID int64) ([]Account, error) {
 
 func (r *Repository) CreateAccount(userID int64, a Account) (*Account, error) {
 	row := r.db.QueryRow(
-		`INSERT INTO accounts (user_id, name, type, icon, color_hex, initial_balance, sort_order, is_system)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		 RETURNING id, name, type, icon, color_hex, initial_balance, sort_order, is_system, created_at`,
-		userID, a.Name, a.Type, a.Icon, a.ColorHex, a.InitialBalance, a.SortOrder, a.IsSystem,
+		`INSERT INTO accounts (user_id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		 RETURNING id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id, created_at`,
+		userID, a.Name, a.Type, a.Icon, a.ColorHex, a.InitialBalance, a.SortOrder, a.IsSystem, idPtrToNullInt(a.ParentID),
 	)
 	var out Account
-	if err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.InitialBalance, &out.SortOrder, &out.IsSystem, &out.CreatedAt); err != nil {
+	var parentID sql.NullInt64
+	if err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.InitialBalance, &out.SortOrder, &out.IsSystem, &parentID, &out.CreatedAt); err != nil {
 		return nil, err
+	}
+	if parentID.Valid {
+		s := strconv.FormatInt(parentID.Int64, 10)
+		out.ParentID = &s
 	}
 	return &out, nil
 }
 
 func (r *Repository) UpdateAccount(userID, id int64, a Account) (*Account, error) {
 	row := r.db.QueryRow(
-		`UPDATE accounts SET name=$3, type=$4, icon=$5, color_hex=$6, initial_balance=$7, sort_order=$8
+		`UPDATE accounts SET name=$3, type=$4, icon=$5, color_hex=$6, initial_balance=$7, sort_order=$8, parent_id=$9
 		 WHERE id=$1 AND user_id=$2
-		 RETURNING id, name, type, icon, color_hex, initial_balance, sort_order, is_system, created_at`,
-		id, userID, a.Name, a.Type, a.Icon, a.ColorHex, a.InitialBalance, a.SortOrder,
+		 RETURNING id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id, created_at`,
+		id, userID, a.Name, a.Type, a.Icon, a.ColorHex, a.InitialBalance, a.SortOrder, idPtrToNullInt(a.ParentID),
 	)
 	var out Account
-	if err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.InitialBalance, &out.SortOrder, &out.IsSystem, &out.CreatedAt); err != nil {
+	var parentID sql.NullInt64
+	if err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.InitialBalance, &out.SortOrder, &out.IsSystem, &parentID, &out.CreatedAt); err != nil {
 		return nil, err
+	}
+	if parentID.Valid {
+		s := strconv.FormatInt(parentID.Int64, 10)
+		out.ParentID = &s
 	}
 	return &out, nil
 }
 
 func (r *Repository) DeleteAccount(userID, id int64) error {
+	var hasChildren bool
+	err := r.db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM accounts WHERE parent_id = $1 AND user_id = $2)`,
+		id, userID,
+	).Scan(&hasChildren)
+	if err != nil {
+		return err
+	}
+	if hasChildren {
+		return fmt.Errorf("account has child accounts, delete children first")
+	}
 	res, err := r.db.Exec(`DELETE FROM accounts WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return err
@@ -275,6 +301,24 @@ func (r *Repository) DeleteAccount(userID, id int64) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *Repository) ClearAccounts(userID int64) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM transactions WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM recurring_transactions WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM accounts WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---- Budgets ----
@@ -422,16 +466,17 @@ type scanFn func(dest ...any) error
 
 func scanTransaction(scan scanFn) (*Transaction, error) {
 	var t Transaction
-	var time sql.NullString
+	var dateVal, timeVal sql.NullTime
 	var catID, accID, toAcc sql.NullInt64
 	var sourceID, sourceType, vendor sql.NullString
-	var dateStr string
-	if err := scan(&t.ID, &t.Amount, &t.Type, &t.Note, &dateStr, &time, &t.CreatedAt, &catID, &accID, &toAcc, &sourceID, &sourceType, &vendor); err != nil {
+	if err := scan(&t.ID, &t.Amount, &t.Type, &t.Note, &dateVal, &timeVal, &t.CreatedAt, &catID, &accID, &toAcc, &sourceID, &sourceType, &vendor); err != nil {
 		return nil, err
 	}
-	t.Date = dateStr
-	if time.Valid {
-		s := time.String
+	if dateVal.Valid {
+		t.Date = dateVal.Time.Format("2006-01-02")
+	}
+	if timeVal.Valid {
+		s := timeVal.Time.Format("15:04:05")
 		t.Time = &s
 	}
 	if catID.Valid {
@@ -477,13 +522,17 @@ func scanRecurring(scan scanFn) (*Recurring, error) {
 	var r Recurring
 	var catID, accID, toAcc sql.NullInt64
 	var dayOfMonth, dayOfWeek sql.NullInt64
-	var nextDate, startDate string
-	var endDate sql.NullString
+	var nextDate, startDate sql.NullTime
+	var endDate sql.NullTime
 	if err := scan(&r.ID, &r.Amount, &r.Type, &r.Note, &catID, &accID, &toAcc, &r.Frequency, &r.Interval, &dayOfMonth, &dayOfWeek, &nextDate, &startDate, &endDate, &r.IsActive, &r.CreatedAt); err != nil {
 		return nil, err
 	}
-	r.NextDate = nextDate
-	r.StartDate = startDate
+	if nextDate.Valid {
+		r.NextDate = nextDate.Time.Format("2006-01-02")
+	}
+	if startDate.Valid {
+		r.StartDate = startDate.Time.Format("2006-01-02")
+	}
 	if catID.Valid {
 		s := strconv.FormatInt(catID.Int64, 10)
 		r.CategoryID = &s
@@ -505,7 +554,7 @@ func scanRecurring(scan scanFn) (*Recurring, error) {
 		r.DayOfWeek = &v
 	}
 	if endDate.Valid {
-		s := endDate.String
+		s := endDate.Time.Format("2006-01-02")
 		r.EndDate = &s
 	}
 	return &r, nil

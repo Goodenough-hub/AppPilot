@@ -105,7 +105,25 @@ func Migrate(db *sql.DB) error {
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	// 增量迁移：老库补列
-	_, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`)
-	return err
+	// 增量迁移：老库补列（pq 驱动需逐条 Exec）
+	stmts := []string{
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES accounts(id) ON DELETE CASCADE`,
+		`CREATE INDEX IF NOT EXISTS idx_accounts_parent_id ON accounts(user_id, parent_id)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return err
+		}
+	}
+	// 业务迁移：老用户「支付宝」「微信」升级为分组+子账户
+	if err := MigrateAccountsHierarchy(db); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「娱乐」分类补「其他」子分类
+	if err := MigrateEntertainmentOther(db); err != nil {
+		return err
+	}
+	// 业务迁移：老用户补「数字服务」顶级分类
+	return migrateDigitalServiceTree(db)
 }

@@ -36,6 +36,7 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 		g.POST("/accounts", h.createAccount)
 		g.PUT("/accounts/:id", h.updateAccount)
 		g.DELETE("/accounts/:id", h.deleteAccount)
+		g.DELETE("/accounts", h.clearAccounts)
 
 		g.GET("/budgets", h.listBudgets)
 		g.POST("/budgets", h.upsertBudget)
@@ -274,6 +275,14 @@ func (h *Handler) deleteAccount(c *gin.Context) {
 		return
 	}
 	if err := h.repo.DeleteAccount(userID(c), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) clearAccounts(c *gin.Context) {
+	if err := h.repo.ClearAccounts(userID(c)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
