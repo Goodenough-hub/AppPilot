@@ -29,6 +29,7 @@ config.local.yaml
 server/bin/
 admin/dist/
 admin/node_modules/
+*.tsbuildinfo
 
 # Claude Code 本地指令
 CLAUDE.md
