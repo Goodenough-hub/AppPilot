@@ -28,6 +28,7 @@ func Run() {
 	}
 	root.AddCommand(serveCmd(&cfg))
 	root.AddCommand(createAdminCmd(&cfg))
+	root.AddCommand(seedCmd(&cfg))
 	if err := root.Execute(); err != nil {
 		klog.Fatalf("execute: %v", err)
 	}
@@ -102,6 +103,9 @@ func createAdminCmd(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := db.SeedForUser(pg, u.ID); err != nil {
+				return fmt.Errorf("seed: %w", err)
+			}
 			fmt.Printf("admin created: id=%d username=%s\n", u.ID, u.Username)
 			return nil
 		},
@@ -110,5 +114,33 @@ func createAdminCmd(cfg *config.Config) *cobra.Command {
 	c.Flags().StringVar(&password, "password", "", "admin password (required)")
 	_ = c.MarkFlagRequired("username")
 	_ = c.MarkFlagRequired("password")
+	return c
+}
+
+func seedCmd(cfg *config.Config) *cobra.Command {
+	var username string
+	c := &cobra.Command{
+		Use:   "seed",
+		Short: "Seed default categories & accounts for an existing user",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pg, err := db.NewPostgres(cfg.DSN)
+			if err != nil {
+				return err
+			}
+			defer pg.Close()
+			repo := auth.NewRepository(pg)
+			u, err := repo.FindByUsername(username)
+			if err != nil {
+				return err
+			}
+			if err := db.SeedForUser(pg, u.ID); err != nil {
+				return fmt.Errorf("seed: %w", err)
+			}
+			fmt.Printf("seeded: id=%d username=%s\n", u.ID, u.Username)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&username, "username", "", "username to seed (required)")
+	_ = c.MarkFlagRequired("username")
 	return c
 }
