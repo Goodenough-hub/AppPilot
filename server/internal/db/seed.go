@@ -21,9 +21,10 @@ var expenseTree = []seedNode{
 		{Name: "夜宵", Icon: "🌙", Color: "#6366F1", Order: 103},
 		{Name: "小吃", Icon: "🍡", Color: "#8B5CF6", Order: 104},
 		{Name: "饮料", Icon: "🥤", Color: "#06B6D4", Order: 105},
-		{Name: "聚餐AA", Icon: "👥", Color: "#8B5CF6", Order: 106},
-		{Name: "聚餐请客", Icon: "❤️", Color: "#EC4899", Order: 107},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 108},
+		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 106},
+		{Name: "聚餐AA", Icon: "👥", Color: "#8B5CF6", Order: 107},
+		{Name: "聚餐请客", Icon: "❤️", Color: "#EC4899", Order: 108},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 109},
 	}},
 	{Name: "交通", Icon: "🚗", Color: "#3B82F6", Order: 1, Children: []seedNode{
 		{Name: "地铁", Icon: "🚇", Color: "#3B82F6", Order: 100},
@@ -37,7 +38,8 @@ var expenseTree = []seedNode{
 		{Name: "淘宝", Icon: "🛍️", Color: "#F59E0B", Order: 101},
 		{Name: "拼多多", Icon: "🛒", Color: "#EF4444", Order: 102},
 		{Name: "抖音", Icon: "🎵", Color: "#6B7280", Order: 103},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
+		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 104},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
 	}},
 	{Name: "住房", Icon: "🏠", Color: "#10B981", Order: 3, Children: []seedNode{
 		{Name: "租金", Icon: "🔑", Color: "#10B981", Order: 100},

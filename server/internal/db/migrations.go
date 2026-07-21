@@ -143,7 +143,19 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// 业务迁移：老用户「影视」补「影院」（爱奇艺后）
-	return migrateInsertAfterParent(db, "影视", "爱奇艺", []seedNode{
+	if err := migrateInsertAfterParent(db, "影视", "爱奇艺", []seedNode{
 		{Name: "影院", Icon: "🎟️", Color: "#F59E0B"},
+	}); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「餐饮」补「外卖」（饮料后）
+	if err := migrateInsertAfterParent(db, "餐饮", "饮料", []seedNode{
+		{Name: "外卖", Icon: "🛵", Color: "#F97316"},
+	}); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「购物」补「外卖」（抖音后）
+	return migrateInsertAfterParent(db, "购物", "抖音", []seedNode{
+		{Name: "外卖", Icon: "🛵", Color: "#F97316"},
 	})
 }

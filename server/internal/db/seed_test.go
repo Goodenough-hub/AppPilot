@@ -138,3 +138,37 @@ func TestExpenseTreeFilmHasCinema(t *testing.T) {
 	// 影院位于爱奇艺之后，其他之前；sort_order 连续
 	assertChain(t, subs, "爱奇艺", "影院")
 }
+
+func TestExpenseTreeDiningHasTakeout(t *testing.T) {
+	subs := childrenOf(t, "餐饮")
+
+	found := false
+	for _, c := range subs {
+		if c.Name == "外卖" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("餐饮子分类缺少「外卖」")
+	}
+	// 外卖位于饮料之后；sort_order 连续
+	assertChain(t, subs, "饮料", "外卖")
+}
+
+func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
+	subs := childrenOf(t, "购物")
+
+	found := false
+	for _, c := range subs {
+		if c.Name == "外卖" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("购物子分类缺少「外卖」")
+	}
+	// 外卖位于抖音之后，其他之前；sort_order 连续
+	assertChain(t, subs, "抖音", "外卖")
+}
