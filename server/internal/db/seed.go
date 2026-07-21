@@ -57,7 +57,8 @@ var expenseTree = []seedNode{
 			{Name: "腾讯视频", Icon: "📺", Color: "#10B981", Order: 301},
 			{Name: "B站", Icon: "▶️", Color: "#EF4444", Order: 302},
 			{Name: "爱奇艺", Icon: "🎬", Color: "#10B981", Order: 303},
-			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 304},
+			{Name: "影院", Icon: "🎟️", Color: "#F59E0B", Order: 304},
+			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 305},
 		}},
 		{Name: "音乐", Icon: "🎵", Color: "#06B6D4", Order: 300, Children: []seedNode{
 			{Name: "Apple Music", Icon: "🎵", Color: "#EF4444", Order: 401},
@@ -476,18 +477,21 @@ func migrateDigitalServiceTree(db *sql.DB) error {
 	return nil
 }
 
-// migrateInsertAfterParent 在每个用户的指定顶级支出分类 rootName 下，
-// 于锚点子分类 afterName 之后插入 nodes（sort_order 紧跟锚点递增）；
-// 原排在锚点之后的子分类 sort_order 整体 +len(nodes) 腾位。
+// migrateInsertAfterParent 在每个用户的指定支出分类 rootName（可为顶级或
+// 嵌套子分类，如「影视」在「娱乐」下）下，于锚点子分类 afterName 之后插入
+// nodes（sort_order 紧跟锚点递增）；原排在锚点之后的子分类 sort_order 整体
+// +len(nodes) 腾位。
 // 幂等：已存在 nodes[0].Name 则跳过；无锚点子分类则跳过（无法定位）。
+// 注意：rootName 需在每个用户下唯一（餐饮/交通/影视均满足）。
 //
-// 用于「餐饮」补 夜宵/小吃/饮料（晚餐后）、「交通」补 高铁（打车后）等 seed 新增项。
+// 用于「餐饮」补 夜宵/小吃/饮料（晚餐后）、「交通」补 高铁（打车后）、
+// 「影视」补 影院（爱奇艺后）等 seed 新增项。
 func migrateInsertAfterParent(db *sql.DB, rootName, afterName string, nodes []seedNode) error {
 	if len(nodes) == 0 {
 		return nil
 	}
 	rows, err := db.Query(
-		`SELECT id, user_id FROM categories WHERE name = $1 AND type = 'expense' AND parent_id IS NULL`,
+		`SELECT id, user_id FROM categories WHERE name = $1 AND type = 'expense'`,
 		rootName,
 	)
 	if err != nil {

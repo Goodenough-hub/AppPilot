@@ -2,16 +2,27 @@ package db
 
 import "testing"
 
-// childrenOf 返回 expenseTree 中指定顶级分类的子分类列表。
-func childrenOf(t *testing.T, root string) []seedNode {
-	t.Helper()
-	for _, r := range expenseTree {
-		if r.Name == root {
-			return r.Children
+// findNode 在 expenseTree 中按名递归查找节点（含嵌套，如「影视」在「娱乐」下）。
+func findNode(nodes []seedNode, name string) *seedNode {
+	for i := range nodes {
+		if nodes[i].Name == name {
+			return &nodes[i]
+		}
+		if r := findNode(nodes[i].Children, name); r != nil {
+			return r
 		}
 	}
-	t.Fatalf("expenseTree 中找不到「%s」分类", root)
 	return nil
+}
+
+// childrenOf 返回 expenseTree 中指定分类（可为顶级或嵌套）的子分类列表。
+func childrenOf(t *testing.T, root string) []seedNode {
+	t.Helper()
+	node := findNode(expenseTree, root)
+	if node == nil {
+		t.Fatalf("expenseTree 中找不到「%s」分类", root)
+	}
+	return node.Children
 }
 
 func TestExpenseTreeDiningHasLateNightAndSnacks(t *testing.T) {
@@ -103,4 +114,27 @@ func TestExpenseTreeTransportHasHighSpeedRail(t *testing.T) {
 
 	// 高铁位于打车之后，其他之前；sort_order 连续
 	assertChain(t, subs, "打车", "高铁")
+}
+
+func TestExpenseTreeFilmHasCinema(t *testing.T) {
+	// 影视是「娱乐」下的嵌套子分类（非顶级）
+	subs := childrenOf(t, "影视")
+
+	names := make([]string, len(subs))
+	for i, c := range subs {
+		names[i] = c.Name
+	}
+	found := false
+	for _, n := range names {
+		if n == "影院" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("影视子分类缺少「影院」，实际: %v", names)
+	}
+
+	// 影院位于爱奇艺之后，其他之前；sort_order 连续
+	assertChain(t, subs, "爱奇艺", "影院")
 }

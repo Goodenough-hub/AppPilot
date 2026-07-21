@@ -137,7 +137,13 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// 业务迁移：老用户「交通」补「高铁」（打车后）
-	return migrateInsertAfterParent(db, "交通", "打车", []seedNode{
+	if err := migrateInsertAfterParent(db, "交通", "打车", []seedNode{
 		{Name: "高铁", Icon: "🚄", Color: "#6366F1"},
+	}); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「影视」补「影院」（爱奇艺后）
+	return migrateInsertAfterParent(db, "影视", "爱奇艺", []seedNode{
+		{Name: "影院", Icon: "🎟️", Color: "#F59E0B"},
 	})
 }
