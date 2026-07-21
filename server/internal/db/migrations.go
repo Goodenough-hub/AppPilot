@@ -125,5 +125,9 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// 业务迁移：老用户补「数字服务」顶级分类
-	return migrateDigitalServiceTree(db)
+	if err := migrateDigitalServiceTree(db); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「餐饮」分类补「夜宵」「小吃」（晚餐后）
+	return MigrateDiningLateNight(db)
 }

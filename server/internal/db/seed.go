@@ -18,9 +18,12 @@ var expenseTree = []seedNode{
 		{Name: "早餐", Icon: "🥐", Color: "#FF6B35", Order: 100},
 		{Name: "午餐", Icon: "🍱", Color: "#F59E0B", Order: 101},
 		{Name: "晚餐", Icon: "🍽️", Color: "#EF4444", Order: 102},
-		{Name: "聚餐AA", Icon: "👥", Color: "#8B5CF6", Order: 103},
-		{Name: "聚餐请客", Icon: "❤️", Color: "#EC4899", Order: 104},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
+		{Name: "夜宵", Icon: "🌙", Color: "#6366F1", Order: 103},
+		{Name: "小吃", Icon: "🍡", Color: "#8B5CF6", Order: 104},
+		{Name: "饮料", Icon: "🥤", Color: "#06B6D4", Order: 105},
+		{Name: "聚餐AA", Icon: "👥", Color: "#8B5CF6", Order: 106},
+		{Name: "聚餐请客", Icon: "❤️", Color: "#EC4899", Order: 107},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 108},
 	}},
 	{Name: "交通", Icon: "🚗", Color: "#3B82F6", Order: 1, Children: []seedNode{
 		{Name: "地铁", Icon: "🚇", Color: "#3B82F6", Order: 100},
@@ -465,6 +468,95 @@ func migrateDigitalServiceTree(db *sql.DB) error {
 			tx.Rollback()
 			return fmt.Errorf("update 其他 sort_order: %w", err)
 		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MigrateDiningLateNight 老用户「餐饮」分类补「夜宵」「小吃」「饮料」三个子分类（seed 新增项），
+// 插在「晚餐」之后；原排在晚餐之后的子分类 sort_order 整体 +3 腾位。
+// 幂等：已存在「夜宵」则跳过；无「晚餐」子分类则跳过（无法定位）。
+func MigrateDiningLateNight(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT id, user_id FROM categories WHERE name = '餐饮' AND type = 'expense' AND parent_id IS NULL`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type root struct {
+		ID     int64
+		UserID int64
+	}
+	var roots []root
+	for rows.Next() {
+		var r root
+		if err := rows.Scan(&r.ID, &r.UserID); err != nil {
+			return err
+		}
+		roots = append(roots, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, r := range roots {
+		// 幂等：已有夜宵则跳过
+		var exists bool
+		if err := db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM categories WHERE parent_id = $1 AND name = '夜宵')`,
+			r.ID,
+		).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+
+		// 定位「晚餐」的 sort_order（作为插入点）
+		var dinnerOrder int
+		err := db.QueryRow(
+			`SELECT sort_order FROM categories WHERE parent_id = $1 AND name = '晚餐'`,
+			r.ID,
+		).Scan(&dinnerOrder)
+		if err != nil {
+			// 没有「晚餐」子分类，无法定位「晚餐后」，跳过
+			continue
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		// 晚餐之后的子分类整体 +3 腾位
+		if _, err := tx.Exec(
+			`UPDATE categories SET sort_order = sort_order + 3
+			 WHERE parent_id = $1 AND sort_order > $2`,
+			r.ID, dinnerOrder,
+		); err != nil {
+			return fmt.Errorf("shift 餐饮 children after 晚餐: %w", err)
+		}
+
+		// 插入夜宵、小吃、饮料（紧跟晚餐）
+		nodes := []seedNode{
+			{Name: "夜宵", Icon: "🌙", Color: "#6366F1", Order: dinnerOrder + 1},
+			{Name: "小吃", Icon: "🍡", Color: "#8B5CF6", Order: dinnerOrder + 2},
+			{Name: "饮料", Icon: "🥤", Color: "#06B6D4", Order: dinnerOrder + 3},
+		}
+		for _, n := range nodes {
+			if _, err := tx.Exec(
+				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
+				 VALUES ($1, $2, 'expense', $3, $4, $5, TRUE, $6)`,
+				r.UserID, n.Name, n.Icon, n.Color, n.Order, r.ID,
+			); err != nil {
+				return fmt.Errorf("insert 餐饮·%s: %w", n.Name, err)
+			}
+		}
+
 		if err := tx.Commit(); err != nil {
 			return err
 		}
