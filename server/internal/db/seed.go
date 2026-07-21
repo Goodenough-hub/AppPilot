@@ -29,7 +29,8 @@ var expenseTree = []seedNode{
 		{Name: "地铁", Icon: "🚇", Color: "#3B82F6", Order: 100},
 		{Name: "公交", Icon: "🚌", Color: "#10B981", Order: 101},
 		{Name: "打车", Icon: "🚕", Color: "#F59E0B", Order: 102},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 103},
+		{Name: "高铁", Icon: "🚄", Color: "#6366F1", Order: 103},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
 	}},
 	{Name: "购物", Icon: "🛍️", Color: "#8B5CF6", Order: 2, Children: []seedNode{
 		{Name: "京东", Icon: "📦", Color: "#EF4444", Order: 100},
@@ -475,12 +476,19 @@ func migrateDigitalServiceTree(db *sql.DB) error {
 	return nil
 }
 
-// MigrateDiningLateNight 老用户「餐饮」分类补「夜宵」「小吃」「饮料」三个子分类（seed 新增项），
-// 插在「晚餐」之后；原排在晚餐之后的子分类 sort_order 整体 +3 腾位。
-// 幂等：已存在「夜宵」则跳过；无「晚餐」子分类则跳过（无法定位）。
-func MigrateDiningLateNight(db *sql.DB) error {
+// migrateInsertAfterParent 在每个用户的指定顶级支出分类 rootName 下，
+// 于锚点子分类 afterName 之后插入 nodes（sort_order 紧跟锚点递增）；
+// 原排在锚点之后的子分类 sort_order 整体 +len(nodes) 腾位。
+// 幂等：已存在 nodes[0].Name 则跳过；无锚点子分类则跳过（无法定位）。
+//
+// 用于「餐饮」补 夜宵/小吃/饮料（晚餐后）、「交通」补 高铁（打车后）等 seed 新增项。
+func migrateInsertAfterParent(db *sql.DB, rootName, afterName string, nodes []seedNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
 	rows, err := db.Query(
-		`SELECT id, user_id FROM categories WHERE name = '餐饮' AND type = 'expense' AND parent_id IS NULL`,
+		`SELECT id, user_id FROM categories WHERE name = $1 AND type = 'expense' AND parent_id IS NULL`,
+		rootName,
 	)
 	if err != nil {
 		return err
@@ -503,11 +511,11 @@ func MigrateDiningLateNight(db *sql.DB) error {
 	}
 
 	for _, r := range roots {
-		// 幂等：已有夜宵则跳过
+		// 幂等：已存在首个新子分类则跳过
 		var exists bool
 		if err := db.QueryRow(
-			`SELECT EXISTS(SELECT 1 FROM categories WHERE parent_id = $1 AND name = '夜宵')`,
-			r.ID,
+			`SELECT EXISTS(SELECT 1 FROM categories WHERE parent_id = $1 AND name = $2)`,
+			r.ID, nodes[0].Name,
 		).Scan(&exists); err != nil {
 			return err
 		}
@@ -515,14 +523,14 @@ func MigrateDiningLateNight(db *sql.DB) error {
 			continue
 		}
 
-		// 定位「晚餐」的 sort_order（作为插入点）
-		var dinnerOrder int
+		// 定位锚点子分类的 sort_order
+		var afterOrder int
 		err := db.QueryRow(
-			`SELECT sort_order FROM categories WHERE parent_id = $1 AND name = '晚餐'`,
-			r.ID,
-		).Scan(&dinnerOrder)
+			`SELECT sort_order FROM categories WHERE parent_id = $1 AND name = $2`,
+			r.ID, afterName,
+		).Scan(&afterOrder)
 		if err != nil {
-			// 没有「晚餐」子分类，无法定位「晚餐后」，跳过
+			// 无锚点子分类，无法定位，跳过
 			continue
 		}
 
@@ -532,28 +540,23 @@ func MigrateDiningLateNight(db *sql.DB) error {
 		}
 		defer tx.Rollback()
 
-		// 晚餐之后的子分类整体 +3 腾位
+		// 锚点之后的子分类整体 +len(nodes) 腾位
 		if _, err := tx.Exec(
-			`UPDATE categories SET sort_order = sort_order + 3
+			`UPDATE categories SET sort_order = sort_order + $3
 			 WHERE parent_id = $1 AND sort_order > $2`,
-			r.ID, dinnerOrder,
+			r.ID, afterOrder, len(nodes),
 		); err != nil {
-			return fmt.Errorf("shift 餐饮 children after 晚餐: %w", err)
+			return fmt.Errorf("shift %s children after %s: %w", rootName, afterName, err)
 		}
 
-		// 插入夜宵、小吃、饮料（紧跟晚餐）
-		nodes := []seedNode{
-			{Name: "夜宵", Icon: "🌙", Color: "#6366F1", Order: dinnerOrder + 1},
-			{Name: "小吃", Icon: "🍡", Color: "#8B5CF6", Order: dinnerOrder + 2},
-			{Name: "饮料", Icon: "🥤", Color: "#06B6D4", Order: dinnerOrder + 3},
-		}
-		for _, n := range nodes {
+		// 插入新子分类（sort_order 紧跟锚点递增）
+		for i, n := range nodes {
 			if _, err := tx.Exec(
 				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
 				 VALUES ($1, $2, 'expense', $3, $4, $5, TRUE, $6)`,
-				r.UserID, n.Name, n.Icon, n.Color, n.Order, r.ID,
+				r.UserID, n.Name, n.Icon, n.Color, afterOrder+i+1, r.ID,
 			); err != nil {
-				return fmt.Errorf("insert 餐饮·%s: %w", n.Name, err)
+				return fmt.Errorf("insert %s·%s: %w", rootName, n.Name, err)
 			}
 		}
 

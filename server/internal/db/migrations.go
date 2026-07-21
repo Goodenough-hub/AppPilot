@@ -128,6 +128,16 @@ func Migrate(db *sql.DB) error {
 	if err := migrateDigitalServiceTree(db); err != nil {
 		return err
 	}
-	// 业务迁移：老用户「餐饮」分类补「夜宵」「小吃」（晚餐后）
-	return MigrateDiningLateNight(db)
+	// 业务迁移：老用户「餐饮」补「夜宵」「小吃」「饮料」（晚餐后）
+	if err := migrateInsertAfterParent(db, "餐饮", "晚餐", []seedNode{
+		{Name: "夜宵", Icon: "🌙", Color: "#6366F1"},
+		{Name: "小吃", Icon: "🍡", Color: "#8B5CF6"},
+		{Name: "饮料", Icon: "🥤", Color: "#06B6D4"},
+	}); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「交通」补「高铁」（打车后）
+	return migrateInsertAfterParent(db, "交通", "打车", []seedNode{
+		{Name: "高铁", Icon: "🚄", Color: "#6366F1"},
+	})
 }
