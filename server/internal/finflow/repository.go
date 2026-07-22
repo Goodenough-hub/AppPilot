@@ -26,12 +26,13 @@ type ListTxFilter struct {
 	CategoryID *int64
 	AccountID  *int64
 	Keyword    *string
+	TripID     *int64
 	Limit      int
 	Offset     int
 }
 
 func (r *Repository) ListTransactions(userID int64, f ListTxFilter) ([]Transaction, error) {
-	q := `SELECT id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor
+	q := `SELECT id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor, trip_id
 	      FROM transactions WHERE user_id = $1`
 	args := []any{userID}
 	n := 2
@@ -60,12 +61,17 @@ func (r *Repository) ListTransactions(userID int64, f ListTxFilter) ([]Transacti
 		args = append(args, *f.AccountID)
 		n++
 	}
+	if f.TripID != nil {
+		q += fmt.Sprintf(" AND trip_id = $%d", n)
+		args = append(args, *f.TripID)
+		n++
+	}
 	if f.Keyword != nil {
 		q += fmt.Sprintf(" AND note ILIKE $%d", n)
 		args = append(args, "%"+*f.Keyword+"%")
 		n++
 	}
-	q += " ORDER BY date DESC, created_at DESC"
+	q += " ORDER BY date DESC, time DESC NULLS LAST, created_at DESC"
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT $%d", n)
 		args = append(args, f.Limit)
@@ -85,7 +91,7 @@ func (r *Repository) ListTransactions(userID int64, f ListTxFilter) ([]Transacti
 
 func (r *Repository) GetTransaction(userID, id int64) (*Transaction, error) {
 	row := r.db.QueryRow(
-		`SELECT id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor
+		`SELECT id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor, trip_id
 		 FROM transactions WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	)
@@ -99,25 +105,25 @@ func (r *Repository) CreateTransaction(userID int64, t Transaction) (*Transactio
 	} else {
 		return nil, fmt.Errorf("date is required")
 	}
-	catID, accID, toAcc := idPtrToNullInt(t.CategoryID), idPtrToNullInt(t.AccountID), idPtrToNullInt(t.ToAccount)
+	catID, accID, toAcc, tripID := idPtrToNullInt(t.CategoryID), idPtrToNullInt(t.AccountID), idPtrToNullInt(t.ToAccount), idPtrToNullInt(t.TripID)
 	row := r.db.QueryRow(
-		`INSERT INTO transactions (user_id, amount, type, note, date, time, category_id, account_id, to_account_id, source_id, source_type, vendor)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-		 RETURNING id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor`,
+		`INSERT INTO transactions (user_id, amount, type, note, date, time, category_id, account_id, to_account_id, source_id, source_type, vendor, trip_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		 RETURNING id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor, trip_id`,
 		userID, t.Amount, t.Type, t.Note, dateStr, strPtrToNullTime(t.Time),
-		catID, accID, toAcc, strPtrToNullString(t.SourceID), strPtrToNullString(t.SourceType), strPtrToNullString(t.Vendor),
+		catID, accID, toAcc, strPtrToNullString(t.SourceID), strPtrToNullString(t.SourceType), strPtrToNullString(t.Vendor), tripID,
 	)
 	return scanTransaction(row.Scan)
 }
 
 func (r *Repository) UpdateTransaction(userID, id int64, t Transaction) (*Transaction, error) {
-	catID, accID, toAcc := idPtrToNullInt(t.CategoryID), idPtrToNullInt(t.AccountID), idPtrToNullInt(t.ToAccount)
+	catID, accID, toAcc, tripID := idPtrToNullInt(t.CategoryID), idPtrToNullInt(t.AccountID), idPtrToNullInt(t.ToAccount), idPtrToNullInt(t.TripID)
 	row := r.db.QueryRow(
-		`UPDATE transactions SET amount=$3, type=$4, note=$5, date=$6, time=$7, category_id=$8, account_id=$9, to_account_id=$10, source_id=$11, source_type=$12, vendor=$13
+		`UPDATE transactions SET amount=$3, type=$4, note=$5, date=$6, time=$7, category_id=$8, account_id=$9, to_account_id=$10, source_id=$11, source_type=$12, vendor=$13, trip_id=$14
 		 WHERE id=$1 AND user_id=$2
-		 RETURNING id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor`,
+		 RETURNING id, amount, type, note, date, time, created_at, category_id, account_id, to_account_id, source_id, source_type, vendor, trip_id`,
 		id, userID, t.Amount, t.Type, t.Note, t.Date, strPtrToNullTime(t.Time),
-		catID, accID, toAcc, strPtrToNullString(t.SourceID), strPtrToNullString(t.SourceType), strPtrToNullString(t.Vendor),
+		catID, accID, toAcc, strPtrToNullString(t.SourceID), strPtrToNullString(t.SourceType), strPtrToNullString(t.Vendor), tripID,
 	)
 	return scanTransaction(row.Scan)
 }
@@ -138,7 +144,7 @@ func (r *Repository) DeleteTransaction(userID, id int64) error {
 
 func (r *Repository) ListCategories(userID int64) ([]Category, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, type, icon, color_hex, sort_order, is_system, parent_id, created_at
+		`SELECT id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope, created_at
 		 FROM categories WHERE user_id = $1 ORDER BY type, sort_order, id`,
 		userID,
 	)
@@ -150,7 +156,7 @@ func (r *Repository) ListCategories(userID int64) ([]Category, error) {
 	for rows.Next() {
 		var c Category
 		var parentID sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Icon, &c.ColorHex, &c.SortOrder, &c.IsSystem, &parentID, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Icon, &c.ColorHex, &c.SortOrder, &c.IsSystem, &parentID, &c.Scope, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		if parentID.Valid {
@@ -163,15 +169,18 @@ func (r *Repository) ListCategories(userID int64) ([]Category, error) {
 }
 
 func (r *Repository) CreateCategory(userID int64, c Category) (*Category, error) {
+	if c.Scope == "" {
+		c.Scope = "normal"
+	}
 	row := r.db.QueryRow(
-		`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		 RETURNING id, name, type, icon, color_hex, sort_order, is_system, parent_id, created_at`,
-		userID, c.Name, c.Type, c.Icon, c.ColorHex, c.SortOrder, c.IsSystem, idPtrToNullInt(c.ParentID),
+		`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		 RETURNING id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope, created_at`,
+		userID, c.Name, c.Type, c.Icon, c.ColorHex, c.SortOrder, c.IsSystem, idPtrToNullInt(c.ParentID), c.Scope,
 	)
 	var out Category
 	var parentID sql.NullInt64
-	err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.SortOrder, &out.IsSystem, &parentID, &out.CreatedAt)
+	err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.SortOrder, &out.IsSystem, &parentID, &out.Scope, &out.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -186,12 +195,12 @@ func (r *Repository) UpdateCategory(userID, id int64, c Category) (*Category, er
 	row := r.db.QueryRow(
 		`UPDATE categories SET name=$3, icon=$4, color_hex=$5, sort_order=$6, parent_id=$7
 		 WHERE id=$1 AND user_id=$2
-		 RETURNING id, name, type, icon, color_hex, sort_order, is_system, parent_id, created_at`,
+		 RETURNING id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope, created_at`,
 		id, userID, c.Name, c.Icon, c.ColorHex, c.SortOrder, idPtrToNullInt(c.ParentID),
 	)
 	var out Category
 	var parentID sql.NullInt64
-	err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.SortOrder, &out.IsSystem, &parentID, &out.CreatedAt)
+	err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.SortOrder, &out.IsSystem, &parentID, &out.Scope, &out.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -467,9 +476,9 @@ type scanFn func(dest ...any) error
 func scanTransaction(scan scanFn) (*Transaction, error) {
 	var t Transaction
 	var dateVal, timeVal sql.NullTime
-	var catID, accID, toAcc sql.NullInt64
+	var catID, accID, toAcc, tripID sql.NullInt64
 	var sourceID, sourceType, vendor sql.NullString
-	if err := scan(&t.ID, &t.Amount, &t.Type, &t.Note, &dateVal, &timeVal, &t.CreatedAt, &catID, &accID, &toAcc, &sourceID, &sourceType, &vendor); err != nil {
+	if err := scan(&t.ID, &t.Amount, &t.Type, &t.Note, &dateVal, &timeVal, &t.CreatedAt, &catID, &accID, &toAcc, &sourceID, &sourceType, &vendor, &tripID); err != nil {
 		return nil, err
 	}
 	if dateVal.Valid {
@@ -502,6 +511,10 @@ func scanTransaction(scan scanFn) (*Transaction, error) {
 	if vendor.Valid {
 		s := vendor.String
 		t.Vendor = &s
+	}
+	if tripID.Valid {
+		s := strconv.FormatInt(tripID.Int64, 10)
+		t.TripID = &s
 	}
 	return &t, nil
 }
@@ -597,3 +610,75 @@ func intPtrToNullInt(i *int) any {
 // 防止 unused 警告（decimal 包将来用于金额计算）
 var _ = decimal.Decimal{}
 var _ = strings.TrimSpace
+
+// ---- Trips ----
+
+func (r *Repository) ListTrips(userID int64) ([]Trip, error) {
+	rows, err := r.db.Query(
+		`SELECT id, name, start_date, end_date, budget, note, created_at
+		 FROM trips WHERE user_id = $1 ORDER BY created_at DESC, id DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Trip{}
+	for rows.Next() {
+		t, err := scanTrip(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *t)
+	}
+	return out, rows.Err()
+}
+
+func scanTrip(scan scanFn) (*Trip, error) {
+	var t Trip
+	var start, end sql.NullTime
+	if err := scan(&t.ID, &t.Name, &start, &end, &t.Budget, &t.Note, &t.CreatedAt); err != nil {
+		return nil, err
+	}
+	if start.Valid {
+		s := start.Time.Format("2006-01-02")
+		t.StartDate = &s
+	}
+	if end.Valid {
+		s := end.Time.Format("2006-01-02")
+		t.EndDate = &s
+	}
+	return &t, nil
+}
+
+func (r *Repository) CreateTrip(userID int64, t Trip) (*Trip, error) {
+	row := r.db.QueryRow(
+		`INSERT INTO trips (user_id, name, start_date, end_date, budget, note)
+		 VALUES ($1,$2,$3,$4,$5,$6)
+		 RETURNING id, name, start_date, end_date, budget, note, created_at`,
+		userID, t.Name, strPtrToNullTime(t.StartDate), strPtrToNullTime(t.EndDate), t.Budget, t.Note,
+	)
+	return scanTrip(row.Scan)
+}
+
+func (r *Repository) UpdateTrip(userID, id int64, t Trip) (*Trip, error) {
+	row := r.db.QueryRow(
+		`UPDATE trips SET name=$3, start_date=$4, end_date=$5, budget=$6, note=$7
+		 WHERE id=$1 AND user_id=$2
+		 RETURNING id, name, start_date, end_date, budget, note, created_at`,
+		id, userID, t.Name, strPtrToNullTime(t.StartDate), strPtrToNullTime(t.EndDate), t.Budget, t.Note,
+	)
+	return scanTrip(row.Scan)
+}
+
+func (r *Repository) DeleteTrip(userID, id int64) error {
+	res, err := r.db.Exec(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

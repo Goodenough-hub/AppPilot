@@ -48,6 +48,11 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 		g.DELETE("/recurring/:id", h.deleteRecurring)
 		g.POST("/recurring/process", h.processRecurring)
 
+		g.GET("/trips", h.listTrips)
+		g.POST("/trips", h.createTrip)
+		g.PUT("/trips/:id", h.updateTrip)
+		g.DELETE("/trips/:id", h.deleteTrip)
+
 		g.GET("/stats/summary", h.summary)
 		g.GET("/stats/category-breakdown", h.categoryBreakdown)
 		g.GET("/stats/daily-trend", h.dailyTrend)
@@ -91,6 +96,11 @@ func (h *Handler) listTransactions(c *gin.Context) {
 	if s := c.Query("accountId"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
 			f.AccountID = &id
+		}
+	}
+	if s := c.Query("tripId"); s != "" {
+		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+			f.TripID = &id
 		}
 	}
 	if s := c.Query("keyword"); s != "" {
@@ -426,4 +436,67 @@ func (h *Handler) dailyTrend(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, stats)
+}
+
+// ---- Trips ----
+
+func (h *Handler) listTrips(c *gin.Context) {
+	trips, err := h.repo.ListTrips(userID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, trips)
+}
+
+func (h *Handler) createTrip(c *gin.Context) {
+	var t Trip
+	if err := c.ShouldBindJSON(&t); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	out, err := h.repo.CreateTrip(userID(c), t)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, out)
+}
+
+func (h *Handler) updateTrip(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var t Trip
+	if err := c.ShouldBindJSON(&t); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	out, err := h.repo.UpdateTrip(userID(c), id, t)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) deleteTrip(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.repo.DeleteTrip(userID(c), id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

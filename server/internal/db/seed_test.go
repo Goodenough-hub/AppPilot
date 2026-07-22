@@ -172,3 +172,72 @@ func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
 	// 外卖位于抖音之后，其他之前；sort_order 连续
 	assertChain(t, subs, "抖音", "外卖")
 }
+
+func TestTripGroupsSeed(t *testing.T) {
+	if len(tripGroups) == 0 {
+		t.Fatal("tripGroups 为空")
+	}
+
+	// 期望的组 → 必须包含的若干叶子
+	wantGroups := map[string][]string{
+		"交通": {"机票", "火车", "高铁", "打车", "地铁", "公交", "租车", "加油", "停车", "过路费"},
+		"餐饮": {"早餐", "午餐", "晚餐", "小吃", "饮料", "咖啡", "酒水"},
+		"住宿": {"酒店", "民宿"},
+		"游玩": {"门票", "演出", "项目", "导游", "装备租赁"},
+		"购物": {"特产", "纪念品", "伴手礼", "免税店"},
+		"杂项": {"通讯流量", "签证", "保险", "医疗", "洗衣", "小费", "其他"},
+		"收入": {"同伴回款", "退款", "报销", "其他"},
+	}
+
+	groupByName := map[string]tripGroup{}
+	for _, g := range tripGroups {
+		if g.Name == "" || g.Icon == "" || g.Color == "" {
+			t.Errorf("旅游分类组字段不完整: %+v", g)
+		}
+		if g.Type != "expense" && g.Type != "income" {
+			t.Errorf("旅游分类组 %s type 非法: %s", g.Name, g.Type)
+		}
+		if len(g.Children) == 0 {
+			t.Errorf("旅游分类组 %s 没有叶子", g.Name)
+		}
+		// 组内叶子字段完整、无重名
+		seen := map[string]bool{}
+		for _, ch := range g.Children {
+			if ch.Name == "" || ch.Icon == "" || ch.Color == "" {
+				t.Errorf("组 %s 叶子字段不完整: %+v", g.Name, ch)
+			}
+			if seen[ch.Name] {
+				t.Errorf("组 %s 内叶子重名: %s", g.Name, ch.Name)
+			}
+			seen[ch.Name] = true
+		}
+		groupByName[g.Name] = g
+	}
+
+	for gname, leaves := range wantGroups {
+		g, ok := groupByName[gname]
+		if !ok {
+			t.Errorf("缺少旅游分类组「%s」", gname)
+			continue
+		}
+		have := map[string]bool{}
+		for _, ch := range g.Children {
+			have[ch.Name] = true
+		}
+		for _, leaf := range leaves {
+			if !have[leaf] {
+				t.Errorf("组「%s」缺少叶子「%s」", gname, leaf)
+			}
+		}
+	}
+
+	// 收入组必须是 income 类型，其余为 expense
+	if groupByName["收入"].Type != "income" {
+		t.Errorf("「收入」组 type 应为 income")
+	}
+	for _, gname := range []string{"交通", "餐饮", "住宿", "游玩", "购物", "杂项"} {
+		if groupByName[gname].Type != "expense" {
+			t.Errorf("「%s」组 type 应为 expense", gname)
+		}
+	}
+}

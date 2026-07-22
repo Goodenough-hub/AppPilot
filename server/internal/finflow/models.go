@@ -21,19 +21,21 @@ type Transaction struct {
 	SourceID   *string         `json:"sourceId"`
 	SourceType *string         `json:"sourceType"`
 	Vendor     *string         `json:"vendor"`
+	TripID     *string         `json:"tripId"`
 }
 
 type Category struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"userId,omitempty"`
-	Name       string    `json:"name"`
-	Type       string    `json:"type"`
-	Icon       string    `json:"icon"`
-	ColorHex   string    `json:"colorHex"`
-	SortOrder  int       `json:"sortOrder"`
-	IsSystem   bool      `json:"isSystem"`
-	ParentID   *string   `json:"parentId"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId,omitempty"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	Icon      string    `json:"icon"`
+	ColorHex  string    `json:"colorHex"`
+	SortOrder int       `json:"sortOrder"`
+	IsSystem  bool      `json:"isSystem"`
+	ParentID  *string   `json:"parentId"`
+	Scope     string    `json:"scope"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Account struct {
@@ -77,4 +79,15 @@ type Recurring struct {
 	EndDate    *string         `json:"endDate"`
 	IsActive   bool            `json:"isActive"`
 	CreatedAt  time.Time       `json:"createdAt"`
+}
+
+type Trip struct {
+	ID        string          `json:"id"`
+	UserID    string          `json:"userId,omitempty"`
+	Name      string          `json:"name"`
+	StartDate *string         `json:"startDate"`
+	EndDate   *string         `json:"endDate"`
+	Budget    decimal.Decimal `json:"budget"`
+	Note      string          `json:"note"`
+	CreatedAt time.Time       `json:"createdAt"`
 }

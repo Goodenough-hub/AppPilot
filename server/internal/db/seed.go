@@ -178,6 +178,11 @@ func SeedForUser(db *sql.DB, userID int64) error {
 			return err
 		}
 	}
+	for _, g := range tripGroups {
+		if err := insertTripGroup(tx, userID, g); err != nil {
+			return err
+		}
+	}
 
 	for _, acc := range defaultAccounts {
 		if err := insertAccountTree(tx, userID, acc, nil); err != nil {
@@ -568,6 +573,210 @@ func migrateInsertAfterParent(db *sql.DB, rootName, afterName string, nodes []se
 
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+// tripGroup 是旅游专属分类的「组」（scope='trip'，parent_id NULL），其 Children 为叶子。
+// 交易只落在叶子上；报告按组聚合。全局每用户共享一套。
+type tripGroup struct {
+	Type     string // expense | income
+	Name     string
+	Icon     string
+	Color    string
+	Order    int
+	Children []seedNode
+}
+
+var tripGroups = []tripGroup{
+	{Type: "expense", Name: "交通", Icon: "✈️", Color: "#3B82F6", Order: 0, Children: []seedNode{
+		{Name: "机票", Icon: "✈️", Color: "#3B82F6", Order: 0},
+		{Name: "火车", Icon: "🚆", Color: "#3B82F6", Order: 1},
+		{Name: "高铁", Icon: "🚄", Color: "#6366F1", Order: 2},
+		{Name: "打车", Icon: "🚕", Color: "#F59E0B", Order: 3},
+		{Name: "地铁", Icon: "🚇", Color: "#3B82F6", Order: 4},
+		{Name: "公交", Icon: "🚌", Color: "#10B981", Order: 5},
+		{Name: "租车", Icon: "🚗", Color: "#8B5CF6", Order: 6},
+		{Name: "加油", Icon: "⛽", Color: "#EF4444", Order: 7},
+		{Name: "停车", Icon: "🅿️", Color: "#6B7280", Order: 8},
+		{Name: "过路费", Icon: "🛣️", Color: "#6B7280", Order: 9},
+	}},
+	{Type: "expense", Name: "餐饮", Icon: "🍴", Color: "#FF6B35", Order: 1, Children: []seedNode{
+		{Name: "早餐", Icon: "🥐", Color: "#FF6B35", Order: 0},
+		{Name: "午餐", Icon: "🍱", Color: "#F59E0B", Order: 1},
+		{Name: "晚餐", Icon: "🍽️", Color: "#EF4444", Order: 2},
+		{Name: "小吃", Icon: "🍡", Color: "#8B5CF6", Order: 3},
+		{Name: "饮料", Icon: "🥤", Color: "#06B6D4", Order: 4},
+		{Name: "咖啡", Icon: "☕", Color: "#B45309", Order: 5},
+		{Name: "酒水", Icon: "🍺", Color: "#F59E0B", Order: 6},
+	}},
+	{Type: "expense", Name: "住宿", Icon: "🛏️", Color: "#10B981", Order: 2, Children: []seedNode{
+		{Name: "酒店", Icon: "🏨", Color: "#10B981", Order: 0},
+		{Name: "民宿", Icon: "🏡", Color: "#059669", Order: 1},
+	}},
+	{Type: "expense", Name: "游玩", Icon: "🎡", Color: "#F59E0B", Order: 3, Children: []seedNode{
+		{Name: "门票", Icon: "🎟️", Color: "#F59E0B", Order: 0},
+		{Name: "演出", Icon: "🎭", Color: "#EC4899", Order: 1},
+		{Name: "项目", Icon: "🎢", Color: "#8B5CF6", Order: 2},
+		{Name: "导游", Icon: "🧭", Color: "#3B82F6", Order: 3},
+		{Name: "装备租赁", Icon: "🎿", Color: "#06B6D4", Order: 4},
+	}},
+	{Type: "expense", Name: "购物", Icon: "🛍️", Color: "#8B5CF6", Order: 4, Children: []seedNode{
+		{Name: "特产", Icon: "🎁", Color: "#EF4444", Order: 0},
+		{Name: "纪念品", Icon: "🛍️", Color: "#8B5CF6", Order: 1},
+		{Name: "伴手礼", Icon: "🎀", Color: "#EC4899", Order: 2},
+		{Name: "免税店", Icon: "🛒", Color: "#F59E0B", Order: 3},
+	}},
+	{Type: "expense", Name: "杂项", Icon: "🧾", Color: "#6B7280", Order: 5, Children: []seedNode{
+		{Name: "通讯流量", Icon: "📶", Color: "#3B82F6", Order: 0},
+		{Name: "签证", Icon: "🛂", Color: "#6B7280", Order: 1},
+		{Name: "保险", Icon: "🛡️", Color: "#10B981", Order: 2},
+		{Name: "医疗", Icon: "💊", Color: "#EF4444", Order: 3},
+		{Name: "洗衣", Icon: "🧺", Color: "#06B6D4", Order: 4},
+		{Name: "小费", Icon: "🪙", Color: "#F59E0B", Order: 5},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 6},
+	}},
+	{Type: "income", Name: "收入", Icon: "💰", Color: "#10B981", Order: 6, Children: []seedNode{
+		{Name: "同伴回款", Icon: "💰", Color: "#10B981", Order: 0},
+		{Name: "退款", Icon: "↩️", Color: "#10B981", Order: 1},
+		{Name: "报销", Icon: "🧾", Color: "#3B82F6", Order: 2},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 3},
+	}},
+}
+
+// insertTripGroup 在事务里插入一个旅游分类组（parent_id NULL）及其叶子（parent_id=组）。
+func insertTripGroup(tx *sql.Tx, userID int64, g tripGroup) error {
+	var gid int64
+	if err := tx.QueryRow(
+		`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+		 VALUES ($1, $2, $3, $4, $5, $6, TRUE, NULL, 'trip') RETURNING id`,
+		userID, g.Name, g.Type, g.Icon, g.Color, g.Order,
+	).Scan(&gid); err != nil {
+		return fmt.Errorf("insert trip group %s: %w", g.Name, err)
+	}
+	for _, ch := range g.Children {
+		if _, err := tx.Exec(
+			`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+			 VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 'trip')`,
+			userID, ch.Name, g.Type, ch.Icon, ch.Color, ch.Order, gid,
+		); err != nil {
+			return fmt.Errorf("insert trip category %s: %w", ch.Name, err)
+		}
+	}
+	return nil
+}
+
+// MigrateTripCategoriesV2 把旅游专属分类升级为「组 + 叶子」两层结构（scope='trip'）。
+// 幂等：
+//   - 每个组按 (user_id, name, type, scope='trip', parent_id IS NULL) 查重，缺则插入；
+//   - 组下叶子按 (user_id, name, type, scope='trip', parent_id=组) 查重，缺则插入；
+//   - 清理旧的扁平 trip 叶子（parent_id NULL、非组名、无子、且无交易引用）；被交易引用的保留。
+// 注意：旧的「住宿」是扁平叶子，新结构里「住宿」是组名——查重时会被复用为组，其交易照常归入该组。
+func MigrateTripCategoriesV2(db *sql.DB) error {
+	rows, err := db.Query(`SELECT DISTINCT user_id FROM categories`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return err
+		}
+		userIDs = append(userIDs, uid)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	groupNames := make(map[string]bool, len(tripGroups))
+	for _, g := range tripGroups {
+		groupNames[g.Name] = true
+	}
+
+	for _, uid := range userIDs {
+		// 1) 确保每个组及其叶子存在
+		for _, g := range tripGroups {
+			var gid int64
+			err := db.QueryRow(
+				`SELECT id FROM categories WHERE user_id=$1 AND name=$2 AND type=$3 AND scope='trip' AND parent_id IS NULL`,
+				uid, g.Name, g.Type,
+			).Scan(&gid)
+			if err == sql.ErrNoRows {
+				if err := db.QueryRow(
+					`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+					 VALUES ($1, $2, $3, $4, $5, $6, TRUE, NULL, 'trip') RETURNING id`,
+					uid, g.Name, g.Type, g.Icon, g.Color, g.Order,
+				).Scan(&gid); err != nil {
+					return fmt.Errorf("insert trip group %s: %w", g.Name, err)
+				}
+			} else if err != nil {
+				return err
+			}
+			for _, ch := range g.Children {
+				var exists bool
+				if err := db.QueryRow(
+					`SELECT EXISTS(SELECT 1 FROM categories WHERE user_id=$1 AND name=$2 AND type=$3 AND scope='trip' AND parent_id=$4)`,
+					uid, ch.Name, g.Type, gid,
+				).Scan(&exists); err != nil {
+					return err
+				}
+				if exists {
+					continue
+				}
+				if _, err := db.Exec(
+					`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+					 VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 'trip')`,
+					uid, ch.Name, g.Type, ch.Icon, ch.Color, ch.Order, gid,
+				); err != nil {
+					return fmt.Errorf("insert trip category %s: %w", ch.Name, err)
+				}
+			}
+		}
+
+		// 2) 清理旧扁平 trip 叶子（先收集候选，再逐个校验删除）
+		flatRows, err := db.Query(
+			`SELECT id, name FROM categories WHERE user_id=$1 AND scope='trip' AND parent_id IS NULL`,
+			uid,
+		)
+		if err != nil {
+			return err
+		}
+		var candidates []int64
+		for flatRows.Next() {
+			var id int64
+			var name string
+			if err := flatRows.Scan(&id, &name); err != nil {
+				flatRows.Close()
+				return err
+			}
+			if groupNames[name] {
+				continue // 组本身，保留
+			}
+			candidates = append(candidates, id)
+		}
+		if err := flatRows.Err(); err != nil {
+			flatRows.Close()
+			return err
+		}
+		flatRows.Close()
+
+		for _, id := range candidates {
+			var blocked bool
+			if err := db.QueryRow(
+				`SELECT EXISTS(SELECT 1 FROM categories WHERE parent_id=$1)
+				     OR EXISTS(SELECT 1 FROM transactions WHERE category_id=$1)`,
+				id,
+			).Scan(&blocked); err != nil {
+				return err
+			}
+			if blocked {
+				continue // 有子分类或被交易引用，保留
+			}
+			if _, err := db.Exec(`DELETE FROM categories WHERE id=$1`, id); err != nil {
+				return fmt.Errorf("delete old flat trip category %d: %w", id, err)
+			}
 		}
 	}
 	return nil

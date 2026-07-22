@@ -110,6 +110,22 @@ func Migrate(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES accounts(id) ON DELETE CASCADE`,
 		`CREATE INDEX IF NOT EXISTS idx_accounts_parent_id ON accounts(user_id, parent_id)`,
+		// 旅游账单：trips 表 + 分类 scope + 交易 trip_id
+		`CREATE TABLE IF NOT EXISTS trips (
+			id BIGSERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			name VARCHAR(64) NOT NULL,
+			start_date DATE,
+			end_date DATE,
+			budget DECIMAL(15,2) NOT NULL DEFAULT 0,
+			note TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_trips_user_id ON trips(user_id)`,
+		`ALTER TABLE categories ADD COLUMN IF NOT EXISTS scope VARCHAR(16) NOT NULL DEFAULT 'normal'`,
+		`CREATE INDEX IF NOT EXISTS idx_categories_scope ON categories(user_id, scope)`,
+		`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS trip_id BIGINT REFERENCES trips(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_trip ON transactions(user_id, trip_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -155,7 +171,11 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// 业务迁移：老用户「购物」补「外卖」（抖音后）
-	return migrateInsertAfterParent(db, "购物", "抖音", []seedNode{
+	if err := migrateInsertAfterParent(db, "购物", "抖音", []seedNode{
 		{Name: "外卖", Icon: "🛵", Color: "#F97316"},
-	})
+	}); err != nil {
+		return err
+	}
+	// 业务迁移：旅游专属分类升级为「组 + 叶子」两层结构（scope='trip'）
+	return MigrateTripCategoriesV2(db)
 }
