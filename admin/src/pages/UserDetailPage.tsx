@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { ArrowLeft, User } from 'lucide-react'
 import { getUserAccounts, getUserCategories, getUserTransactions, type Account, type Category, type Transaction } from '../api/admin'
 
 export default function UserDetailPage() {
@@ -26,13 +27,13 @@ export default function UserDetailPage() {
     <div className="animate-fade-in-up">
       <div style={{ marginBottom: 24 }}>
         <Link to="/admin/users" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 14 }}>
-          <span>&larr;</span> 返回用户列表
+          <ArrowLeft size={16} strokeWidth={2} /> 返回用户列表
         </Link>
       </div>
-      
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
-        <div style={{ width: 48, height: 48, borderRadius: 24, background: 'var(--primary-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, boxShadow: 'var(--shadow-glow)' }}>
-          <span style={{ color: 'white' }}>👤</span>
+        <div style={{ width: 48, height: 48, borderRadius: 24, background: 'var(--primary-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', boxShadow: 'var(--shadow-glow)' }}>
+          <User size={22} strokeWidth={2} />
         </div>
         <div>
           <h1 style={{ fontSize: 28, margin: 0, fontFamily: 'Outfit, sans-serif' }}>用户数据中心</h1>

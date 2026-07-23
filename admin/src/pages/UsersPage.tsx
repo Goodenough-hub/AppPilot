@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   createUser, deleteUser, getStats, listApps, listUsers,
   type AdminStats, type User
 } from '../api/admin'
+import StatCard from '../components/ui/StatCard'
 
 interface Form {
   username: string
@@ -60,12 +62,15 @@ export default function UsersPage() {
       setForm(initialForm)
       const [u, s] = await Promise.all([listUsers(app), getStats(app)])
       setUsers(u); setStats(s)
+      toast.success(`已创建用户 ${form.username}`)
       if (created?.id) {
         setNewUserId(String(created.id))
         setTimeout(() => setNewUserId(null), 2000)
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || '创建失败')
+      const msg = err.response?.data?.error || '创建失败'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -76,6 +81,7 @@ export default function UsersPage() {
     setLeavingIds(prev => new Set(prev).add(id))
     try {
       await deleteUser(id)
+      toast.success(`已删除用户 ${username}`)
       // 等淡出动画结束再移除行
       setTimeout(async () => {
         const [u, s] = await Promise.all([listUsers(app), getStats(app)])
@@ -92,7 +98,9 @@ export default function UsersPage() {
         next.delete(id)
         return next
       })
-      setError(err.response?.data?.error || '删除失败')
+      const msg = err.response?.data?.error || '删除失败'
+      setError(msg)
+      toast.error(msg)
     }
   }
 
@@ -105,21 +113,10 @@ export default function UsersPage() {
 
   return (
     <div className="animate-fade-in-up">
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        marginBottom: 40
-      }}>
+      <header className="admin-page-header">
         <div>
-          <h1 style={{
-            fontSize: 32,
-            margin: 0,
-            marginBottom: 8
-          }}>用户管理</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
-            管理接入应用的用户账户
-          </p>
+          <h1 style={{ fontSize: 32 }}>用户管理</h1>
+          <p className="subtitle">管理接入应用的用户账户</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>应用</span>
@@ -131,7 +128,7 @@ export default function UsersPage() {
             {apps.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
-      </div>
+      </header>
 
       {error && (
         <div style={{
@@ -146,28 +143,14 @@ export default function UsersPage() {
       )}
 
       {cards.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 24,
-          marginBottom: 40
-        }}>
+        <div className="stat-grid">
           {cards.map((c, i) => (
-            <div key={c.label} className={`glass-panel animate-fade-in-up stagger-${i+1}`} style={{ padding: '24px' }}>
-              <div style={{
-                color: 'var(--text-secondary)',
-                fontSize: 13,
-                marginBottom: 12,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
-              }}>{c.label}</div>
-              <div style={{
-                fontSize: 32,
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                fontFamily: 'Outfit, sans-serif'
-              }}>{c.value}</div>
-            </div>
+            <StatCard
+              key={c.label}
+              label={c.label}
+              value={c.value}
+              className={`animate-fade-in-up stagger-${i + 1}`}
+            />
           ))}
         </div>
       )}
@@ -272,13 +255,7 @@ export default function UsersPage() {
                     {new Date(u.createdAt).toLocaleString('zh-CN')}
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Link to={`/admin/users/${u.id}`} style={{ 
-                      marginRight: 16,
-                      padding: '6px 12px', 
-                      background: 'var(--surface-hover)', 
-                      borderRadius: 6,
-                      fontSize: 12
-                    }}>查看</Link>
+                    <Link to={`/admin/users/${u.id}`} className="pill-link" style={{ marginRight: 16 }}>查看</Link>
                     <button
                       className="danger"
                       style={{ padding: '5px 14px', fontSize: 12 }}
