@@ -176,6 +176,12 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：老用户「住房」补「酒店」（物业后）
+	if err := migrateInsertAfterParent(db, "住房", "物业", []seedNode{
+		{Name: "酒店", Icon: "🏨", Color: "#3B82F6"},
+	}); err != nil {
+		return err
+	}
 	// 业务迁移：旅游专属分类升级为「组 + 叶子」两层结构（scope='trip'）
 	return MigrateTripCategoriesV2(db)
 }
