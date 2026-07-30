@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS blog_drafts (
     status              VARCHAR(16) NOT NULL DEFAULT 'draft',
     version             BIGINT NOT NULL DEFAULT 1,
     published_commit_sha VARCHAR(64),
+    published_version   BIGINT,
     published_at        TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -260,14 +261,15 @@ CREATE INDEX IF NOT EXISTS idx_blog_assets_user ON blog_assets(user_id);
 CREATE INDEX IF NOT EXISTS idx_blog_assets_sha ON blog_assets(sha256);
 
 CREATE TABLE IF NOT EXISTS blog_publish_jobs (
-    id         BIGSERIAL PRIMARY KEY,
-    draft_id   BIGINT NOT NULL REFERENCES blog_drafts(id) ON DELETE CASCADE,
-    action     VARCHAR(16) NOT NULL,
-    commit_sha VARCHAR(64),
-    status     VARCHAR(16) NOT NULL DEFAULT 'queued',
-    error      TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id            BIGSERIAL PRIMARY KEY,
+    draft_id      BIGINT NOT NULL REFERENCES blog_drafts(id) ON DELETE CASCADE,
+    draft_version BIGINT,
+    action        VARCHAR(16) NOT NULL,
+    commit_sha    VARCHAR(64),
+    status        VARCHAR(16) NOT NULL DEFAULT 'queued',
+    error         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_blog_publish_jobs_draft ON blog_publish_jobs(draft_id, created_at DESC);
 
@@ -289,7 +291,15 @@ func MigrateBlog(db *sql.DB) error {
 	// 增量列（老库补齐）
 	stmts := []string{
 		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
+		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS published_version BIGINT`,
 		`ALTER TABLE blog_assets ADD COLUMN IF NOT EXISTS publish_path TEXT`,
+		`ALTER TABLE blog_publish_jobs ADD COLUMN IF NOT EXISTS draft_version BIGINT`,
+		// blog_draft_versions 去重：保留每 (draft_id, version) id 最大的一条，
+		// 再建唯一索引，保证检查点版本唯一。
+		`DELETE FROM blog_draft_versions a USING blog_draft_versions b
+		 WHERE a.draft_id = b.draft_id AND a.version = b.version AND a.id < b.id`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_draft_versions_draft_version
+		 ON blog_draft_versions(draft_id, version)`,
 		// 一个草稿最多一个未终结 job（queued/building），消除发布接口的并发窗口。
 		`CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_publish_jobs_active
 		 ON blog_publish_jobs(draft_id) WHERE status IN ('queued','building')`,

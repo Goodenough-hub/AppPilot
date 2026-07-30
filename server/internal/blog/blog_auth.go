@@ -47,13 +47,4 @@ func AuthRequired(repo *Repository, secret string) gin.HandlerFunc {
 	}
 }
 
-// VerifyCallbackHMAC 校验 GitHub Actions 部署回调的 HMAC 签名。
-// 约定：Authorization: Bearer <hex(hmac-sha256(secret, body))>。
-func VerifyCallbackHMAC(secret, body []byte, authHeader string) bool {
-	if secret == nil || len(secret) == 0 || authHeader == "" {
-		return false
-	}
-	return verifyHMAC(secret, body, authHeader)
-}
-
 var _ = errors.New

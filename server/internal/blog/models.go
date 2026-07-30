@@ -20,9 +20,9 @@ const (
 // Publish job 状态：
 //
 //	queued   —— 已创建 job，尚未调用 Git
-//	building —— Git 提交成功，等待 GitHub Actions 构建回调
-//	succeeded —— 构建回调成功，草稿才标记为已发布/已撤回
-//	failed   —— 构建或 Git 失败，线上版本不变
+//	building —— Git 提交成功、数据库完成事务前的短暂恢复态
+//	succeeded —— Git 提交成功且本地状态事务完成
+//	failed   —— Git 提交失败，仓库内容不变
 const (
 	JobQueued    = "queued"
 	JobBuilding  = "building"
@@ -49,20 +49,22 @@ type BlogUser struct {
 }
 
 type Draft struct {
-	ID                 int64      `json:"id"`
-	UserID             int64      `json:"userId"`
-	Slug               string     `json:"slug"`
-	Title              string     `json:"title"`
-	Description        string     `json:"description"`
-	Tags               []string   `json:"tags"`
-	Cover              *string    `json:"cover"`
-	Markdown           string     `json:"markdown"`
-	Status             string     `json:"status"`
-	Version            int64      `json:"version"`
-	PublishedCommitSha *string    `json:"publishedCommitSha,omitempty"`
-	PublishedAt        *time.Time `json:"publishedAt,omitempty"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	UpdatedAt          time.Time  `json:"updatedAt"`
+	ID                    int64      `json:"id"`
+	UserID                int64      `json:"userId"`
+	Slug                  string     `json:"slug"`
+	Title                 string     `json:"title"`
+	Description           string     `json:"description"`
+	Tags                  []string   `json:"tags"`
+	Cover                 *string    `json:"cover"`
+	Markdown              string     `json:"markdown"`
+	Status                string     `json:"status"`
+	Version               int64      `json:"version"`
+	PublishedCommitSha    *string    `json:"publishedCommitSha,omitempty"`
+	PublishedVersion      *int64     `json:"publishedVersion,omitempty"`
+	HasUnpublishedChanges bool       `json:"hasUnpublishedChanges"`
+	PublishedAt           *time.Time `json:"publishedAt,omitempty"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
 type DraftVersion struct {
@@ -92,14 +94,15 @@ type Asset struct {
 }
 
 type PublishJob struct {
-	ID        int64     `json:"id"`
-	DraftID   int64     `json:"draftId"`
-	Action    string    `json:"action"`
-	CommitSha *string   `json:"commitSha,omitempty"`
-	Status    string    `json:"status"`
-	Error     string    `json:"error,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID           int64     `json:"id"`
+	DraftID      int64     `json:"draftId"`
+	DraftVersion *int64    `json:"draftVersion,omitempty"`
+	Action       string    `json:"action"`
+	CommitSha    *string   `json:"commitSha,omitempty"`
+	Status       string    `json:"status"`
+	Error        string    `json:"error,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type AuditLog struct {
@@ -151,14 +154,4 @@ type UpdateBlogUserRequest struct {
 
 type ResetPasswordRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
-}
-
-// ---- 发布回调请求体 ----
-// GitHub Actions 无法获知 AppPilot 内部 jobId，回调以 commitSha 定位 job。
-// jobId 可选，提供时用于二次校验。
-type PublishCallbackRequest struct {
-	JobID     int64  `json:"jobId"`
-	CommitSha string `json:"commitSha" binding:"required"`
-	Status    string `json:"status" binding:"required"` // succeeded | failed
-	Error     string `json:"error"`
 }

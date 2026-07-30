@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
@@ -203,14 +204,18 @@ func (r *Repository) VerifyPassword(u *BlogUser, password string) error {
 
 // ==================== Draft ====================
 
-const draftCols = "id, user_id, slug, title, description, tags, cover, markdown, status, version, published_commit_sha, published_at, created_at, updated_at"
+const draftCols = "id, user_id, slug, title, description, tags, cover, markdown, status, version, published_commit_sha, published_version, published_at, created_at, updated_at"
 
 func scanDraft(sc func(...any) error) (*Draft, error) {
 	d := &Draft{}
 	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
-		&d.Cover, &d.Markdown, &d.Status, &d.Version, &d.PublishedCommitSha, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt)
+		&d.Cover, &d.Markdown, &d.Status, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	// 派生：已发布但本地版本超过已发布版本 → 有未发布修改。
+	if d.Status == StatusPublished && (d.PublishedVersion == nil || d.Version > *d.PublishedVersion) {
+		d.HasUnpublishedChanges = true
 	}
 	return d, nil
 }
@@ -291,11 +296,13 @@ func (r *Repository) CreateDraft(userID int64, d Draft) (*Draft, error) {
 		}
 		return nil, err
 	}
+	// 新建草稿保存 v1 检查点。
+	_ = r.insertCheckpoint(out)
 	return out, nil
 }
 
 // UpdateDraft 乐观锁：必须提交 baseVersion；WHERE version = baseVersion。
-// 成功后 version+1 并写入版本快照。冲突返回 ErrConflict（含服务端最新版本）。
+// 成功后 version+1。版本快照按检查点策略（≥5min）异步创建，不再每次保存都写。
 func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftRequest) (*Draft, int64, error) {
 	sets := []string{"version = version + 1", "updated_at = NOW()"}
 	args := []any{}
@@ -332,14 +339,8 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 	}
 	args = append(args, id, userID, baseVersion) // $n, $n+1, $n+2
 
-	tx, err := r.db.Begin()
-	if err != nil {
-		return nil, 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
 	d, err := scanDraft(func(dst ...any) error {
-		return tx.QueryRow(
+		return r.db.QueryRow(
 			fmt.Sprintf(
 				`UPDATE blog_drafts SET %s WHERE id = $%d AND user_id = $%d AND version = $%d
 				 RETURNING `+draftCols,
@@ -350,9 +351,8 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// 冲突或草稿不存在：返回当前服务端版本供客户端比较
 			var serverVersion int64
-			_ = tx.QueryRow(`SELECT version FROM blog_drafts WHERE id = $1 AND user_id = $2`, id, userID).Scan(&serverVersion)
+			_ = r.db.QueryRow(`SELECT version FROM blog_drafts WHERE id = $1 AND user_id = $2`, id, userID).Scan(&serverVersion)
 			if serverVersion == 0 {
 				return nil, 0, ErrDraftNotFound
 			}
@@ -361,27 +361,49 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			var serverVersion int64
-			_ = tx.QueryRow(`SELECT version FROM blog_drafts WHERE id = $1 AND user_id = $2`, id, userID).Scan(&serverVersion)
+			_ = r.db.QueryRow(`SELECT version FROM blog_drafts WHERE id = $1 AND user_id = $2`, id, userID).Scan(&serverVersion)
 			return nil, serverVersion, ErrConflict
 		}
 		return nil, 0, err
 	}
+	// 检查点策略：距上一个快照≥5min 才自动创建，避免每次保存都写快照。
+	_ = r.maybeCheckpoint(d)
+	return d, d.Version, nil
+}
 
-	// 写入版本快照（新版本号、新内容）
-	if _, err := tx.Exec(
+// checkpointInterval 自动检查点的最小间隔。
+const checkpointInterval = 5 * time.Minute
+
+// maybeCheckpoint 距上一个快照≥checkpointInterval 或无快照时创建一个。
+func (r *Repository) maybeCheckpoint(d *Draft) error {
+	var last sql.NullTime
+	if err := r.db.QueryRow(
+		`SELECT MAX(created_at) FROM blog_draft_versions WHERE draft_id = $1`, d.ID,
+	).Scan(&last); err != nil {
+		return err
+	}
+	if last.Valid && time.Since(last.Time) < checkpointInterval {
+		return nil
+	}
+	return r.insertCheckpoint(d)
+}
+
+// CreateCheckpoint 为草稿当前内容显式创建检查点（手动保存版本、发布前、恢复后）。
+func (r *Repository) CreateCheckpoint(d *Draft) error {
+	return r.insertCheckpoint(d)
+}
+
+// insertCheckpoint 插入当前草稿状态的快照，(draft_id,version) 冲突则跳过，并裁剪到 100 条。
+func (r *Repository) insertCheckpoint(d *Draft) error {
+	if _, err := r.db.Exec(
 		`INSERT INTO blog_draft_versions (draft_id, version, title, description, tags, cover, markdown)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)
+		 ON CONFLICT (draft_id, version) DO NOTHING`,
 		d.ID, d.Version, d.Title, d.Description, pq.Array(d.Tags), d.Cover, d.Markdown,
 	); err != nil {
-		return nil, 0, err
+		return err
 	}
-	if err := trimVersions(tx, d.ID); err != nil {
-		return nil, 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, 0, err
-	}
-	return d, d.Version, nil
+	return trimVersionsTx(r.db, d.ID)
 }
 
 // trimVersions 仅保留单篇最近 100 个版本快照。
@@ -437,41 +459,41 @@ func (r *Repository) FindBuildingJobByCommit(commitSha string) (*PublishJob, err
 	if commitSha == "" {
 		return nil, nil
 	}
-	var j PublishJob
-	err := r.db.QueryRow(
-		`SELECT id, draft_id, action, commit_sha, status, error, created_at, updated_at
-		 FROM blog_publish_jobs WHERE commit_sha = $1 AND status = 'building'
-		 ORDER BY created_at DESC LIMIT 1`,
-		commitSha,
-	).Scan(&j.ID, &j.DraftID, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	j, err := scanJob(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE commit_sha = $1 AND status = 'building'
+			 ORDER BY created_at DESC LIMIT 1`,
+			commitSha,
+		).Scan(dst...)
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &j, nil
+	return j, nil
 }
 
-// FindJobByCommitAnySha 按 commitSha 查找任意状态的 job（用于回调幂等：已终结 job 重复回调）。
+// FindJobByCommitAnySha 按 commitSha 查找任意状态的 job（幂等：已终结 job 不重复处理）。
 func (r *Repository) FindJobByCommitAnySha(commitSha string) (*PublishJob, error) {
 	if commitSha == "" {
 		return nil, nil
 	}
-	var j PublishJob
-	err := r.db.QueryRow(
-		`SELECT id, draft_id, action, commit_sha, status, error, created_at, updated_at
-		 FROM blog_publish_jobs WHERE commit_sha = $1
-		 ORDER BY created_at DESC LIMIT 1`,
-		commitSha,
-	).Scan(&j.ID, &j.DraftID, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	j, err := scanJob(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE commit_sha = $1
+			 ORDER BY created_at DESC LIMIT 1`,
+			commitSha,
+		).Scan(dst...)
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &j, nil
+	return j, nil
 }
 
 // MarkDraftAssetsPublished 已由 PromoteDraftAssetsPublished 取代（回调提升暂存路径）。
@@ -656,51 +678,92 @@ func (r *Repository) PromoteDraftAssetsPublished(draftID int64) error {
 
 // ==================== PublishJob ====================
 
-func (r *Repository) CreateJob(draftID int64, action string) (*PublishJob, error) {
-	var j PublishJob
-	err := r.db.QueryRow(
-		`INSERT INTO blog_publish_jobs (draft_id, action, status) VALUES ($1,$2,'queued')
-		 RETURNING id, draft_id, action, commit_sha, status, error, created_at, updated_at`,
-		draftID, action,
-	).Scan(&j.ID, &j.DraftID, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+const jobCols = "id, draft_id, draft_version, action, commit_sha, status, error, created_at, updated_at"
+
+func scanJob(sc func(...any) error) (*PublishJob, error) {
+	j := &PublishJob{}
+	err := sc(&j.ID, &j.DraftID, &j.DraftVersion, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
-	return &j, nil
+	return j, nil
+}
+
+func (r *Repository) CreateJob(draftID int64, action string, draftVersion int64) (*PublishJob, error) {
+	j, err := scanJob(func(dst ...any) error {
+		return r.db.QueryRow(
+			`INSERT INTO blog_publish_jobs (draft_id, draft_version, action, status) VALUES ($1,$2,$3,'queued')
+			 RETURNING `+jobCols,
+			draftID, draftVersion, action,
+		).Scan(dst...)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return j, nil
 }
 
 func (r *Repository) GetJob(id int64) (*PublishJob, error) {
-	var j PublishJob
-	err := r.db.QueryRow(
-		`SELECT id, draft_id, action, commit_sha, status, error, created_at, updated_at
-		 FROM blog_publish_jobs WHERE id = $1`,
-		id,
-	).Scan(&j.ID, &j.DraftID, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	j, err := scanJob(func(dst ...any) error {
+		return r.db.QueryRow(`SELECT `+jobCols+` FROM blog_publish_jobs WHERE id = $1`, id).Scan(dst...)
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrJobNotFound
 		}
 		return nil, err
 	}
-	return &j, nil
+	return j, nil
 }
 
 // FindActiveJobByDraft 返回某草稿未终结的 job（queued/building），用于发布幂等。
 func (r *Repository) FindActiveJobByDraft(draftID int64) (*PublishJob, error) {
-	var j PublishJob
-	err := r.db.QueryRow(
-		`SELECT id, draft_id, action, commit_sha, status, error, created_at, updated_at
-		 FROM blog_publish_jobs WHERE draft_id = $1 AND status IN ('queued','building')
-		 ORDER BY created_at DESC LIMIT 1`,
-		draftID,
-	).Scan(&j.ID, &j.DraftID, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	j, err := scanJob(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE draft_id = $1 AND status IN ('queued','building')
+			 ORDER BY created_at DESC LIMIT 1`,
+			draftID,
+		).Scan(dst...)
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &j, nil
+	return j, nil
+}
+
+// ListBuildingWithSha 返回所有 building 且已有 commit_sha 的 job（启动崩溃恢复用）。
+func (r *Repository) ListBuildingWithSha() ([]PublishJob, error) {
+	rows, err := r.db.Query(`SELECT ` + jobCols + ` FROM blog_publish_jobs WHERE status = 'building' AND commit_sha IS NOT NULL AND commit_sha <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PublishJob{}
+	for rows.Next() {
+		j, err := scanJob(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *j)
+	}
+	return out, rows.Err()
+}
+
+// MarkStaleQueuedFailed 把早于 cutoff 的 queued job 标记失败（进程崩溃后允许重新发布）。
+func (r *Repository) MarkStaleQueuedFailed(cutoff time.Time) (int64, error) {
+	res, err := r.db.Exec(
+		`UPDATE blog_publish_jobs SET status = 'failed', error = 'stale queued job on startup', updated_at = NOW()
+		 WHERE status = 'queued' AND created_at < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (r *Repository) SetJobBuilding(id int64, commitSha string) error {

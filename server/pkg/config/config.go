@@ -15,12 +15,11 @@ type Config struct {
 	// 独立 JWT secret、独立 GitHub 仓库发布、独立草稿图片暂存目录。
 	// 这些字段为空时 blog 路由仍注册，但请求会在运行期返回 503，
 	// 不影响 finflow/admin（保持现有部署向后兼容）。
-	BlogJWTSecret            string
-	BlogGitHubToken          string
-	BlogRepo                 string
-	BlogBranch               string
-	BlogAssetDir             string
-	BlogDeployCallbackSecret string
+	BlogJWTSecret   string
+	BlogGitHubToken string
+	BlogRepo        string
+	BlogBranch      string
+	BlogAssetDir    string
 }
 
 func Load() Config {
@@ -29,12 +28,11 @@ func Load() Config {
 		DSN:       getenv("APPPLOT_DSN", ""),
 		JWTSecret: getenv("APPPLOT_JWT_SECRET", ""),
 
-		BlogJWTSecret:            getenv("APPPLOT_BLOG_JWT_SECRET", ""),
-		BlogGitHubToken:          getenv("APPPLOT_BLOG_GITHUB_TOKEN", ""),
-		BlogRepo:                 getenv("APPPLOT_BLOG_REPO", "Goodenough-hub/FluxBlog"),
-		BlogBranch:               getenv("APPPLOT_BLOG_BRANCH", "main"),
-		BlogAssetDir:             getenv("APPPLOT_BLOG_ASSET_DIR", "/var/lib/apppilot/fluxblog"),
-		BlogDeployCallbackSecret: getenv("APPPLOT_BLOG_DEPLOY_CALLBACK_SECRET", ""),
+		BlogJWTSecret:   getenv("APPPLOT_BLOG_JWT_SECRET", ""),
+		BlogGitHubToken: getenv("APPPLOT_BLOG_GITHUB_TOKEN", ""),
+		BlogRepo:        getenv("APPPLOT_BLOG_REPO", "Goodenough-hub/FluxBlog"),
+		BlogBranch:      getenv("APPPLOT_BLOG_BRANCH", "main"),
+		BlogAssetDir:    getenv("APPPLOT_BLOG_ASSET_DIR", "/var/lib/apppilot/fluxblog"),
 	}
 }
 

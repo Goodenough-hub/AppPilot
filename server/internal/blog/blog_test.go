@@ -129,29 +129,6 @@ func TestParseTokenForRefreshWindowExpired(t *testing.T) {
 	}
 }
 
-// ==================== HMAC 回调 ====================
-
-func TestHMACCallback(t *testing.T) {
-	secret := []byte("deploy-callback-secret")
-	body := []byte(`{"jobId":1,"status":"succeeded"}`)
-	sig := SignCallback(secret, body)
-	if !VerifyCallbackHMAC(secret, body, sig) {
-		t.Fatal("valid HMAC should verify")
-	}
-	// 篡改 body 应失败
-	if VerifyCallbackHMAC(secret, append(body, '!'), sig) {
-		t.Fatal("tampered body should fail HMAC")
-	}
-	// 错误 secret 应失败
-	if VerifyCallbackHMAC([]byte("wrong"), body, sig) {
-		t.Fatal("wrong secret should fail HMAC")
-	}
-	// 空 secret/头应失败
-	if VerifyCallbackHMAC(nil, body, sig) {
-		t.Fatal("nil secret should fail")
-	}
-}
-
 // ==================== frontmatter 组装 ====================
 
 func TestAssembleFrontmatter(t *testing.T) {
@@ -262,6 +239,30 @@ func TestPublisherNoToken(t *testing.T) {
 	p := &Publisher{repo: "r", branch: "main", token: "", baseURL: "https://example.invalid", client: http.DefaultClient}
 	if _, err := p.Commit(context.Background(), "m", nil); err == nil {
 		t.Fatal("Commit without token should error")
+	}
+}
+
+// ==================== CI-only 发布完成恢复 ====================
+
+func TestRecoverableCommittedJob(t *testing.T) {
+	sha := "commit-1"
+	cases := []struct {
+		name string
+		job  *PublishJob
+		want bool
+	}{
+		{name: "building 且已有 commit SHA 可恢复", job: &PublishJob{Status: JobBuilding, CommitSha: &sha}, want: true},
+		{name: "queued 尚未证明 Git 提交成功", job: &PublishJob{Status: JobQueued, CommitSha: &sha}, want: false},
+		{name: "building 但没有 SHA 不可恢复", job: &PublishJob{Status: JobBuilding}, want: false},
+		{name: "终结 job 不重复恢复", job: &PublishJob{Status: JobSucceeded, CommitSha: &sha}, want: false},
+		{name: "nil job", job: nil, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := recoverableCommittedJob(tc.job); got != tc.want {
+				t.Fatalf("recoverableCommittedJob() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

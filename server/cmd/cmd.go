@@ -82,11 +82,12 @@ func serve(cfg *config.Config) error {
 	)
 
 	// FluxBlog：独立博客写作 API。独立 JWT/账号/表族，与 finflow/admin 隔离。
-	// 中间件 BlogAuthRequired 在 handler 内部按子路由应用。
 	blogRepo := blog.NewRepository(pg)
 	blogPublisher := blog.NewPublisher(cfg.BlogRepo, cfg.BlogBranch, cfg.BlogGitHubToken)
-	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, blogPublisher, cfg.BlogAssetDir, cfg.BlogDeployCallbackSecret)
+	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, blogPublisher, cfg.BlogAssetDir)
 	blogHandler.Register(v1.Group("/blog"))
+	// 启动崩溃恢复：完成 building+commit_sha 的 job，标记超时 queued job 失败。
+	blogHandler.RecoverInterrupted()
 
 	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
 	adminHandler.Register(
