@@ -183,5 +183,124 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	// 业务迁移：旅游专属分类升级为「组 + 叶子」两层结构（scope='trip'）
-	return MigrateTripCategoriesV2(db)
+	if err := MigrateTripCategoriesV2(db); err != nil {
+		return err
+	}
+	// FluxBlog：独立博客表族（与 users/transactions 完全隔离）。
+	// blog_users 软删除 + token_version 使停用/删除账号的现有令牌立即失效。
+	return MigrateBlog(db)
+}
+
+// blogSchema 是 FluxBlog 的独立表族。与 finflow 的 users/transactions 等
+// 完全隔离：blog 用独立账号、独立 JWT（iss=apppilot/aud=fluxblog/token_version）。
+// 全部 IF NOT EXISTS，可被 db.Migrate 幂等重复调用。
+const blogSchema = `
+CREATE TABLE IF NOT EXISTS blog_users (
+    id            BIGSERIAL PRIMARY KEY,
+    username      VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    is_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    token_version BIGINT NOT NULL DEFAULT 0,
+    deleted_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- username 唯一性仅约束未删除账号，软删除后可重建同名账号。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_users_username ON blog_users(username) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_blog_users_enabled ON blog_users(is_enabled) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS blog_drafts (
+    id                  BIGSERIAL PRIMARY KEY,
+    user_id             BIGINT NOT NULL REFERENCES blog_users(id) ON DELETE RESTRICT,
+    slug                VARCHAR(128) NOT NULL UNIQUE,
+    title               VARCHAR(256) NOT NULL,
+    description         TEXT NOT NULL DEFAULT '',
+    tags                TEXT[] NOT NULL DEFAULT '{}',
+    cover               VARCHAR(512),
+    markdown            TEXT NOT NULL DEFAULT '',
+    status              VARCHAR(16) NOT NULL DEFAULT 'draft',
+    version             BIGINT NOT NULL DEFAULT 1,
+    published_commit_sha VARCHAR(64),
+    published_at        TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_drafts_user ON blog_drafts(user_id);
+CREATE INDEX IF NOT EXISTS idx_blog_drafts_status ON blog_drafts(status);
+
+-- 自动保存快照；单篇最多保留最近 100 个（由 repository 在写入时裁剪）。
+CREATE TABLE IF NOT EXISTS blog_draft_versions (
+    id          BIGSERIAL PRIMARY KEY,
+    draft_id    BIGINT NOT NULL REFERENCES blog_drafts(id) ON DELETE CASCADE,
+    version     BIGINT NOT NULL,
+    title       VARCHAR(256) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    tags        TEXT[] NOT NULL DEFAULT '{}',
+    cover       VARCHAR(512),
+    markdown    TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_draft_versions_draft ON blog_draft_versions(draft_id, version DESC);
+
+-- 草稿图片：暂存路径（受保护）+ 发布路径（公开 /blog/media/...）。
+CREATE TABLE IF NOT EXISTS blog_assets (
+    id             BIGSERIAL PRIMARY KEY,
+    user_id        BIGINT NOT NULL REFERENCES blog_users(id) ON DELETE RESTRICT,
+    draft_id       BIGINT REFERENCES blog_drafts(id) ON DELETE SET NULL,
+    sha256         CHAR(64) NOT NULL,
+    filename       VARCHAR(255) NOT NULL,
+    mime           VARCHAR(128) NOT NULL,
+    size           BIGINT NOT NULL,
+    staging_path   TEXT NOT NULL,
+    publish_path   TEXT,
+    published_path TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_assets_user ON blog_assets(user_id);
+CREATE INDEX IF NOT EXISTS idx_blog_assets_sha ON blog_assets(sha256);
+
+CREATE TABLE IF NOT EXISTS blog_publish_jobs (
+    id         BIGSERIAL PRIMARY KEY,
+    draft_id   BIGINT NOT NULL REFERENCES blog_drafts(id) ON DELETE CASCADE,
+    action     VARCHAR(16) NOT NULL,
+    commit_sha VARCHAR(64),
+    status     VARCHAR(16) NOT NULL DEFAULT 'queued',
+    error      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_publish_jobs_draft ON blog_publish_jobs(draft_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS blog_audit_logs (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT,
+    action     VARCHAR(32) NOT NULL,
+    detail     TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_audit_logs_user ON blog_audit_logs(user_id, created_at DESC);
+`
+
+// MigrateBlog 创建 FluxBlog 独立表族。幂等，由 db.Migrate 调用。
+func MigrateBlog(db *sql.DB) error {
+	if _, err := db.Exec(blogSchema); err != nil {
+		return err
+	}
+	// 增量列（老库补齐）
+	stmts := []string{
+		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
+		`ALTER TABLE blog_assets ADD COLUMN IF NOT EXISTS publish_path TEXT`,
+		// 一个草稿最多一个未终结 job（queued/building），消除发布接口的并发窗口。
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_publish_jobs_active
+		 ON blog_publish_jobs(draft_id) WHERE status IN ('queued','building')`,
+		// 老库可能用列级 UNIQUE(username) 全局约束，软删除后无法重建同名账号。
+		// 若存在则删除（仅当存在；PG 支持 IF EXISTS）。
+		`ALTER TABLE blog_users DROP CONSTRAINT IF EXISTS blog_users_username_key`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return err
+		}
+	}
+	return nil
 }

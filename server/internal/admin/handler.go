@@ -10,22 +10,25 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"apppilot-server/internal/auth"
+	"apppilot-server/internal/blog"
 	"apppilot-server/internal/finflow"
 )
 
 type Handler struct {
-	db        *sql.DB
-	authRepo  *auth.Repository
-	authH     *auth.Handler
-	finflow   *finflow.Handler
+	db       *sql.DB
+	authRepo *auth.Repository
+	authH    *auth.Handler
+	finflow  *finflow.Handler
+	blogRepo *blog.Repository
 }
 
-func NewHandler(db *sql.DB, authRepo *auth.Repository, jwtSecret string) *Handler {
+func NewHandler(db *sql.DB, authRepo *auth.Repository, jwtSecret string, blogRepo *blog.Repository) *Handler {
 	return &Handler{
 		db:       db,
 		authRepo: authRepo,
 		authH:    auth.NewHandler(authRepo, jwtSecret),
 		finflow:  finflow.NewHandler(db),
+		blogRepo: blogRepo,
 	}
 }
 
@@ -40,6 +43,13 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 		g.GET("/users/:id/categories", h.listUserCategories)
 		g.GET("/users/:id/accounts", h.listUserAccounts)
 		g.GET("/stats", h.stats)
+
+		// FluxBlog 账号管理：与 finflow 用户隔离，不混入上面 users 统计。
+		g.GET("/blog-users", h.listBlogUsers)
+		g.POST("/blog-users", h.createBlogUser)
+		g.PATCH("/blog-users/:id", h.updateBlogUser)
+		g.DELETE("/blog-users/:id", h.deleteBlogUser)
+		g.PUT("/blog-users/:id/password", h.resetBlogUserPassword)
 	}
 }
 
@@ -88,7 +98,7 @@ func (h *Handler) listUsers(c *gin.Context) {
 	// 聚合每个用户在当前应用下的交易数和最近活跃时间。
 	// lastActiveAt 取 transactions.created_at 的最大值。
 	type userStat struct {
-		TxCount      int64  `json:"transactionCount"`
+		TxCount      int64   `json:"transactionCount"`
 		LastActiveAt *string `json:"lastActiveAt"`
 	}
 	statsMap := map[int64]userStat{}
@@ -247,11 +257,11 @@ func (h *Handler) stats(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"totalUsers":       len(appUserIDs),
+		"totalUsers":        len(appUserIDs),
 		"totalTransactions": totalTx,
-		"admins":           adminCount,
-		"regularUsers":     userCount,
-		"activeThisWeek":   activeThisWeek,
+		"admins":            adminCount,
+		"regularUsers":      userCount,
+		"activeThisWeek":    activeThisWeek,
 	})
 }
 
@@ -263,6 +273,133 @@ func parseIDParam(c *gin.Context, key string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// ==================== FluxBlog 账号管理 ====================
+// 独立于 finflow users：软删除、停用即时失效（token_version 递增）。
+
+func (h *Handler) listBlogUsers(c *gin.Context) {
+	users, err := h.blogRepo.ListUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	out := make([]gin.H, 0, len(users))
+	for _, u := range users {
+		out = append(out, gin.H{
+			"id":           strconv.FormatInt(u.ID, 10),
+			"username":     u.Username,
+			"isEnabled":    u.IsEnabled,
+			"tokenVersion": u.TokenVersion,
+			"deletedAt":    u.DeletedAt,
+			"createdAt":    u.CreatedAt,
+			"updatedAt":    u.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) createBlogUser(c *gin.Context) {
+	var req blog.CreateBlogUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	u, err := h.blogRepo.Create(req.Username, req.Password)
+	if err != nil {
+		if errors.Is(err, blog.ErrUserExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	_ = h.blogRepo.InsertAudit(nil, "create", u.Username)
+	c.JSON(http.StatusCreated, gin.H{
+		"id":        strconv.FormatInt(u.ID, 10),
+		"username":  u.Username,
+		"isEnabled": u.IsEnabled,
+		"createdAt": u.CreatedAt,
+		"updatedAt": u.UpdatedAt,
+	})
+}
+
+func (h *Handler) updateBlogUser(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req blog.UpdateBlogUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	u, err := h.blogRepo.UpdateProfile(id, req.Username, req.IsEnabled)
+	if err != nil {
+		switch {
+		case errors.Is(err, blog.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		case errors.Is(err, blog.ErrUserExists):
+			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	if req.IsEnabled != nil && !*req.IsEnabled {
+		_ = h.blogRepo.InsertAudit(&id, "disable", u.Username)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":           strconv.FormatInt(u.ID, 10),
+		"username":     u.Username,
+		"isEnabled":    u.IsEnabled,
+		"tokenVersion": u.TokenVersion,
+		"updatedAt":    u.UpdatedAt,
+	})
+}
+
+func (h *Handler) deleteBlogUser(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	u, err := h.blogRepo.FindByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if err := h.blogRepo.SoftDelete(id); err != nil {
+		if errors.Is(err, blog.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	_ = h.blogRepo.InsertAudit(&id, "delete", u.Username)
+	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) resetBlogUserPassword(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req blog.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.blogRepo.UpdatePassword(id, req.Password); err != nil {
+		if errors.Is(err, blog.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	_ = h.blogRepo.InsertAudit(&id, "password_change", "")
+	c.Status(http.StatusNoContent)
 }
 
 func contains(s []string, v string) bool {

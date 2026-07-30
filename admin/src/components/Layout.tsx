@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Users, LogOut, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Users, PenLine, LogOut, type LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import Logo from './Logo'
 
 const navItems: { to: string; label: string; end: boolean; icon: LucideIcon }[] = [
   { to: '/admin', label: '概览', end: true, icon: LayoutDashboard },
-  { to: '/admin/users', label: '用户管理', end: false, icon: Users }
+  { to: '/admin/users', label: '用户管理', end: false, icon: Users },
+  { to: '/admin/blog-users', label: '博客账号', end: false, icon: PenLine },
 ]
 
 export default function Layout() {

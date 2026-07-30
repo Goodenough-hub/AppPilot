@@ -8,6 +8,7 @@ import (
 
 	"apppilot-server/internal/admin"
 	"apppilot-server/internal/auth"
+	"apppilot-server/internal/blog"
 	"apppilot-server/internal/db"
 	"apppilot-server/internal/finflow"
 	"apppilot-server/internal/middleware"
@@ -80,7 +81,14 @@ func serve(cfg *config.Config) error {
 		middleware.AppScopeRequired("finflow"),
 	)
 
-	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret)
+	// FluxBlog：独立博客写作 API。独立 JWT/账号/表族，与 finflow/admin 隔离。
+	// 中间件 BlogAuthRequired 在 handler 内部按子路由应用。
+	blogRepo := blog.NewRepository(pg)
+	blogPublisher := blog.NewPublisher(cfg.BlogRepo, cfg.BlogBranch, cfg.BlogGitHubToken)
+	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, blogPublisher, cfg.BlogAssetDir, cfg.BlogDeployCallbackSecret)
+	blogHandler.Register(v1.Group("/blog"))
+
+	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
 	adminHandler.Register(
 		v1.Group("/admin"),
 		middleware.AuthRequired(cfg.JWTSecret),

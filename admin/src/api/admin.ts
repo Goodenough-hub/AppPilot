@@ -106,3 +106,48 @@ export async function getStats(app?: string): Promise<AdminStats> {
   const { data } = await apiClient.get<AdminStats>('/admin/stats', { params })
   return data
 }
+
+// ==================== FluxBlog 账号管理 ====================
+
+export interface BlogUser {
+  id: string
+  username: string
+  isEnabled: boolean
+  tokenVersion: number
+  deletedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateBlogUserRequest {
+  username: string
+  password: string
+}
+
+export interface UpdateBlogUserRequest {
+  username?: string
+  isEnabled?: boolean
+}
+
+export async function listBlogUsers(): Promise<BlogUser[]> {
+  const { data } = await apiClient.get<BlogUser[]>('/admin/blog-users')
+  return data
+}
+
+export async function createBlogUser(req: CreateBlogUserRequest): Promise<BlogUser> {
+  const { data } = await apiClient.post<BlogUser>('/admin/blog-users', req)
+  return data
+}
+
+export async function updateBlogUser(id: string, req: UpdateBlogUserRequest): Promise<BlogUser> {
+  const { data } = await apiClient.patch<BlogUser>(`/admin/blog-users/${id}`, req)
+  return data
+}
+
+export async function deleteBlogUser(id: string): Promise<void> {
+  await apiClient.delete(`/admin/blog-users/${id}`)
+}
+
+export async function resetBlogUserPassword(id: string, password: string): Promise<void> {
+  await apiClient.put(`/admin/blog-users/${id}/password`, { password })
+}
