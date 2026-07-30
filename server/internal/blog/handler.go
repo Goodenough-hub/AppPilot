@@ -380,8 +380,11 @@ func (h *Handler) uploadAsset(c *gin.Context) {
 		return
 	}
 	mime := http.DetectContentType(data)
-	if !strings.HasPrefix(mime, "image/") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only images allowed"})
+	// 仅接受 sniff 后的 JPEG/PNG/WebP/GIF；拒绝 SVG 与其他类型。
+	switch mime {
+	case "image/jpeg", "image/png", "image/webp", "image/gif":
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "仅接受 JPEG/PNG/WebP/GIF"})
 		return
 	}
 	sum := sha256.Sum256(data)
