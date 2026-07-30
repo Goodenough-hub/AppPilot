@@ -17,8 +17,9 @@ var (
 	ErrJobNotFound   = errors.New("publish job not found")
 )
 
-// slugRegexp 只允许小写字母、数字和连字符，全站唯一。
-var slugRegexp = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+// slugRegexp 允许小写字母、数字、连字符与中文（Han），全站唯一。
+// 不以连字符开头/结尾，不连续连字符。
+var slugRegexp = regexp.MustCompile(`^[a-z0-9\p{Han}]+(?:-[a-z0-9\p{Han}]+)*$`)
 
 // ValidSlug 校验 slug：非空、只含小写字母/数字/连字符、不以连字符开头或结尾。
 func ValidSlug(slug string) bool {

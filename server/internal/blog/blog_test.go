@@ -20,13 +20,14 @@ func TestValidSlug(t *testing.T) {
 		"hello-world":     true,
 		"hello":           true,
 		"a-b-1-2":         true,
+		"欢迎来到fluxblog":    true, // 中文 slug 允许
+		"markdown-能力演示":   true,
 		"":                false,
-		"Hello":           false, // 大写
+		"Hello":           false, // 大写仍拒绝
 		"-leading":        false,
 		"trailing-":       false,
 		"with_underscore": false,
 		"with.dot":        false,
-		"中文":              false,
 		"hello world":     false,
 	}
 	for slug, want := range cases {
