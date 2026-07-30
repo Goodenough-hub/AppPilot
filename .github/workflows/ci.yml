@@ -3,11 +3,10 @@ name: CI
 permissions:
   contents: read
 
+# CI 改为仅手动触发（workflow_dispatch），不在 push/PR 时自动运行，避免邮件打扰。
+# 本地仍按 AGENTS.md 在提交前跑 typecheck + test + build（server: go test/vet/build；admin: typecheck/test/build）。
 on:
-  push:
-    branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 jobs:
   server:
