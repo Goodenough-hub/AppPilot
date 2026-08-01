@@ -101,7 +101,6 @@ var expenseTree = []seedNode{
 		{Name: "学费", Icon: "💳", Color: "#3B82F6", Order: 102},
 		{Name: "课程", Icon: "📺", Color: "#F59E0B", Order: 103},
 		{Name: "考试报名", Icon: "📄", Color: "#EF4444", Order: 104},
-		{Name: "微信读书订阅", Icon: "📖", Color: "#10B981", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
 	{Name: "数字服务", Icon: "🌐", Color: "#06B6D4", Order: 7, Children: []seedNode{
@@ -110,7 +109,8 @@ var expenseTree = []seedNode{
 		{Name: "软件订阅", Icon: "📦", Color: "#8B5CF6", Order: 102},
 		{Name: "云服务", Icon: "☁️", Color: "#F59E0B", Order: 103},
 		{Name: "通讯", Icon: "📱", Color: "#3B82F6", Order: 104},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
+		{Name: "微信读书订阅", Icon: "📖", Color: "#10B981", Order: 105},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
 	{Name: "生活", Icon: "🌿", Color: "#14B8A6", Order: 8, Children: []seedNode{
 		{Name: "理发", Icon: "✂️", Color: "#14B8A6", Order: 100},
@@ -593,6 +593,80 @@ func migrateLifeTree(db *sql.DB) error {
 	return nil
 }
 
+// migrateMoveWeixinReadSubscription 把「微信读书订阅」从「教育」移到「数字服务」
+// （seed 调整：教育移除该项、数字服务在通讯后新增）。靠 reparent 保留原 id，
+// 不破坏已绑定该分类的交易（transactions.category_id ON DELETE SET NULL，
+// 若删了重建会丢失旧交易的归类）。幂等：已在数字服务下则跳过。
+func migrateMoveWeixinReadSubscription(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT id, user_id, parent_id FROM categories WHERE name = '微信读书订阅' AND type = 'expense'`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type c struct {
+		ID       int64
+		UserID   int64
+		ParentID sql.NullInt64
+	}
+	var items []c
+	for rows.Next() {
+		var x c
+		if err := rows.Scan(&x.ID, &x.UserID, &x.ParentID); err != nil {
+			return err
+		}
+		items = append(items, x)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, x := range items {
+		// 该用户的「数字服务」顶级 id
+		var dsID int64
+		err := db.QueryRow(
+			`SELECT id FROM categories WHERE user_id = $1 AND name = '数字服务' AND type = 'expense' AND parent_id IS NULL`,
+			x.UserID,
+		).Scan(&dsID)
+		if err == sql.ErrNoRows {
+			// 无「数字服务」顶级（极旧用户且其迁移未跑），跳过
+			continue
+		} else if err != nil {
+			return fmt.Errorf("find 数字服务 for user %d: %w", x.UserID, err)
+		}
+		// 已在数字服务下则跳过（幂等）
+		if x.ParentID.Valid && x.ParentID.Int64 == dsID {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		// reparent 到数字服务，sort_order 取 105；原数字服务·其他顺延到 106
+		if _, err := tx.Exec(
+			`UPDATE categories SET parent_id = $1, sort_order = 105 WHERE id = $2`,
+			dsID, x.ID,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("reparent 微信读书订阅: %w", err)
+		}
+		if _, err := tx.Exec(
+			`UPDATE categories SET sort_order = 106
+			 WHERE user_id = $1 AND name = '其他' AND parent_id = $2`,
+			x.UserID, dsID,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("update 数字服务·其他 sort_order: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateInsertAfterParent 在每个用户的指定支出分类 rootName（可为顶级或
 // 嵌套子分类，如「影视」在「娱乐」下）下，于锚点子分类 afterName 之后插入
 // nodes（sort_order 紧跟锚点递增）；原排在锚点之后的子分类 sort_order 整体
 // +len(nodes) 腾位。

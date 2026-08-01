@@ -196,6 +196,10 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：把「微信读书订阅」从「教育」移到「数字服务」（reparent）
+	if err := migrateMoveWeixinReadSubscription(db); err != nil {
+		return err
+	}
 	// FluxBlog：独立博客表族（与 users/transactions 完全隔离）。
 	// blog_users 软删除 + token_version 使停用/删除账号的现有令牌立即失效。
 	return MigrateBlog(db)
