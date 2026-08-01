@@ -42,14 +42,21 @@ var expenseTree = []seedNode{
 		{Name: "线下购物", Icon: "🏬", Color: "#8B5CF6", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
-	{Name: "住房", Icon: "🏠", Color: "#10B981", Order: 3, Children: []seedNode{
+	{Name: "生活", Icon: "🧴", Color: "#14B8A6", Order: 3, Children: []seedNode{
+		{Name: "理发", Icon: "✂️", Color: "#14B8A6", Order: 100},
+		{Name: "快递", Icon: "📦", Color: "#F59E0B", Order: 101},
+		{Name: "礼金", Icon: "🧧", Color: "#EF4444", Order: 102},
+		{Name: "捐赠", Icon: "❤️", Color: "#EC4899", Order: 103},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
+	}},
+	{Name: "住房", Icon: "🏠", Color: "#10B981", Order: 4, Children: []seedNode{
 		{Name: "租金", Icon: "🔑", Color: "#10B981", Order: 100},
 		{Name: "水电", Icon: "⚡", Color: "#F59E0B", Order: 101},
 		{Name: "物业", Icon: "🏢", Color: "#3B82F6", Order: 102},
 		{Name: "酒店", Icon: "🏨", Color: "#3B82F6", Order: 103},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
 	}},
-	{Name: "娱乐", Icon: "🎮", Color: "#F59E0B", Order: 4, Children: []seedNode{
+	{Name: "娱乐", Icon: "🎮", Color: "#F59E0B", Order: 5, Children: []seedNode{
 		{Name: "游戏", Icon: "🎮", Color: "#F59E0B", Order: 100, Children: []seedNode{
 			{Name: "王者荣耀", Icon: "👑", Color: "#F59E0B", Order: 201},
 			{Name: "和平精英", Icon: "🎯", Color: "#10B981", Order: 202},
@@ -88,7 +95,7 @@ var expenseTree = []seedNode{
 		}},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 600},
 	}},
-	{Name: "医疗", Icon: "⚕️", Color: "#EF4444", Order: 5, Children: []seedNode{
+	{Name: "医疗", Icon: "⚕️", Color: "#EF4444", Order: 6, Children: []seedNode{
 		{Name: "挂号", Icon: "⚕️", Color: "#EF4444", Order: 100},
 		{Name: "药品", Icon: "💊", Color: "#F59E0B", Order: 101},
 		{Name: "体检", Icon: "🩺", Color: "#10B981", Order: 102},
@@ -96,7 +103,7 @@ var expenseTree = []seedNode{
 		{Name: "眼科", Icon: "👁️", Color: "#8B5CF6", Order: 104},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
 	}},
-	{Name: "教育", Icon: "📚", Color: "#6366F1", Order: 6, Children: []seedNode{
+	{Name: "教育", Icon: "📚", Color: "#6366F1", Order: 7, Children: []seedNode{
 		{Name: "培训", Icon: "🎓", Color: "#6366F1", Order: 100},
 		{Name: "书籍", Icon: "📚", Color: "#8B5CF6", Order: 101},
 		{Name: "学费", Icon: "💳", Color: "#3B82F6", Order: 102},
@@ -104,7 +111,7 @@ var expenseTree = []seedNode{
 		{Name: "考试报名", Icon: "📄", Color: "#EF4444", Order: 104},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
-	{Name: "数字服务", Icon: "🌐", Color: "#06B6D4", Order: 7, Children: []seedNode{
+	{Name: "数字服务", Icon: "🌐", Color: "#06B6D4", Order: 8, Children: []seedNode{
 		{Name: "服务器", Icon: "🖥️", Color: "#3B82F6", Order: 100},
 		{Name: "域名", Icon: "🌍", Color: "#10B981", Order: 101},
 		{Name: "软件订阅", Icon: "📦", Color: "#8B5CF6", Order: 102},
@@ -112,13 +119,6 @@ var expenseTree = []seedNode{
 		{Name: "通讯", Icon: "📱", Color: "#3B82F6", Order: 104},
 		{Name: "微信读书订阅", Icon: "📖", Color: "#10B981", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
-	}},
-	{Name: "生活", Icon: "🌿", Color: "#14B8A6", Order: 8, Children: []seedNode{
-		{Name: "理发", Icon: "✂️", Color: "#14B8A6", Order: 100},
-		{Name: "快递", Icon: "📦", Color: "#F59E0B", Order: 101},
-		{Name: "礼金", Icon: "🧧", Color: "#EF4444", Order: 102},
-		{Name: "捐赠", Icon: "❤️", Color: "#EC4899", Order: 103},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
 	}},
 	{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 9},
 }
@@ -561,7 +561,7 @@ func migrateLifeTree(db *sql.DB) error {
 		var rootID int64
 		err = tx.QueryRow(
 			`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
-			 VALUES ($1, '生活', 'expense', '🌿', '#14B8A6', 8, TRUE, NULL) RETURNING id`,
+			 VALUES ($1, '生活', 'expense', '🧴', '#14B8A6', 8, TRUE, NULL) RETURNING id`,
 			uid,
 		).Scan(&rootID)
 		if err != nil {
@@ -586,6 +586,88 @@ func migrateLifeTree(db *sql.DB) error {
 		); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("update 其他 sort_order: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateReorderLifeBeforeHousing 把顶级「生活」从末尾（Order 8）移到「购物」(2)
+// 之后、「住房」之前，并把住房/娱乐/医疗/教育/数字服务各 +1（→4/5/6/7/8），
+// 其他保持 9。顺带把图标从 🌿 改为 🧴（seed 调整）。
+// 标准顺序：餐饮0 交通1 购物2 生活3 住房4 娱乐5 医疗6 教育7 数字服务8 其他9。
+// 幂等：生活已为 Order 3 则跳过。
+func migrateReorderLifeBeforeHousing(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT user_id FROM categories WHERE name = '生活' AND type = 'expense' AND parent_id IS NULL`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return err
+		}
+		userIDs = append(userIDs, uid)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// name → 目标 sort_order（顶级、expense、parent_id IS NULL）
+	targets := []struct {
+		name  string
+		order int
+	}{
+		{"生活", 3},
+		{"住房", 4},
+		{"娱乐", 5},
+		{"医疗", 6},
+		{"教育", 7},
+		{"数字服务", 8},
+	}
+
+	for _, uid := range userIDs {
+		var lifeOrder int
+		err := db.QueryRow(
+			`SELECT sort_order FROM categories WHERE user_id = $1 AND name = '生活' AND type = 'expense' AND parent_id IS NULL`,
+			uid,
+		).Scan(&lifeOrder)
+		if err == sql.ErrNoRows {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("find 生活 for user %d: %w", uid, err)
+		}
+		if lifeOrder == 3 {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, t := range targets {
+			if _, err := tx.Exec(
+				`UPDATE categories SET sort_order = $1
+				 WHERE user_id = $2 AND name = $3 AND type = 'expense' AND parent_id IS NULL`,
+				t.order, uid, t.name,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("reorder %s: %w", t.name, err)
+			}
+		}
+		// 图标 🌿 → 🧴（仅生活）
+		if _, err := tx.Exec(
+			`UPDATE categories SET icon = '🧴'
+			 WHERE user_id = $1 AND name = '生活' AND type = 'expense' AND parent_id IS NULL`,
+			uid,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("update 生活 icon: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
 			return err

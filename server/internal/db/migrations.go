@@ -148,6 +148,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateLifeTree(db); err != nil {
 		return err
 	}
+	// 业务迁移：把「生活」移到购物后、住房前，并改图标 🌿→🧴
+	if err := migrateReorderLifeBeforeHousing(db); err != nil {
+		return err
+	}
 	// 业务迁移：老用户「餐饮」补「夜宵」「小吃」「饮料」（晚餐后）
 	if err := migrateInsertAfterParent(db, "餐饮", "晚餐", []seedNode{
 		{Name: "夜宵", Icon: "🌙", Color: "#6366F1"},
