@@ -31,6 +31,7 @@ func Run() {
 	root.AddCommand(serveCmd(&cfg))
 	root.AddCommand(createAdminCmd(&cfg))
 	root.AddCommand(seedCmd(&cfg))
+	root.AddCommand(importBlogCmd(&cfg))
 	if err := root.Execute(); err != nil {
 		klog.Fatalf("execute: %v", err)
 	}
@@ -82,12 +83,10 @@ func serve(cfg *config.Config) error {
 	)
 
 	// FluxBlog：独立博客写作 API。独立 JWT/账号/表族，与 finflow/admin 隔离。
+	// 发布/撤回为 DB 内同步状态翻转，不再提交 Git。
 	blogRepo := blog.NewRepository(pg)
-	blogPublisher := blog.NewPublisher(cfg.BlogRepo, cfg.BlogBranch, cfg.BlogGitHubToken)
-	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, blogPublisher, cfg.BlogAssetDir)
+	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, cfg.BlogAssetDir)
 	blogHandler.Register(v1.Group("/blog"))
-	// 启动崩溃恢复：完成 building+commit_sha 的 job，标记超时 queued job 失败。
-	blogHandler.RecoverInterrupted()
 
 	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
 	adminHandler.Register(

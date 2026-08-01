@@ -1,10 +1,8 @@
 package blog
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,43 +11,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"k8s.io/klog/v2"
 )
 
-// jsonMustMarshal 将 v 序列化为 JSON；用于生成安全的 YAML 标量。
-func jsonMustMarshal(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return []byte("null")
-	}
-	return b
-}
-
-func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
-
 // Handler 是 FluxBlog 写作 API 入口。与 finflow/admin handler 隔离：
-// 独立 JWT、独立 repo、独立鉴权中间件。
+// 独立 JWT、独立 repo、独立鉴权中间件。发布/撤回为 DB 内同步状态翻转，不再走 Git。
 type Handler struct {
 	repo      *Repository
 	jwtSecret string
-	publisher *Publisher
 	assetDir  string
 }
 
-func NewHandler(repo *Repository, jwtSecret string, publisher *Publisher, assetDir string) *Handler {
+func NewHandler(repo *Repository, jwtSecret string, assetDir string) *Handler {
 	return &Handler{
 		repo:      repo,
 		jwtSecret: jwtSecret,
-		publisher: publisher,
 		assetDir:  assetDir,
 	}
 }
 
 // configGuard 在缺少 Blog JWT 配置时统一返回 503，影响全部 blog 接口
-// （含 login：无法签发令牌）。GitHub token 缺失只影响发布/撤回（见 publish/unpublish）。
+// （含 login：无法签发令牌）。
 func (h *Handler) configGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if len(h.jwtSecret) < 32 {
@@ -67,7 +50,19 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	ag := rg.Group("/auth")
 	ag.POST("/login", h.login)
 	ag.POST("/refresh", h.refresh)
+	ag.POST("/logout", blogAuth, h.logout)
 	ag.GET("/me", blogAuth, h.me)
+
+	// 公开读：无需登录（仍受 configGuard 约束）。内容来自 blog_drafts，不再依赖 Git。
+	pub := rg.Group("/posts")
+	pub.GET("", h.listPublicPosts)
+	pub.GET("/search", h.searchPublic)
+	pub.GET("/:slug", h.getPublicPost)
+
+	// 私有读：仅作者本人（blogAuth + 属主）。
+	me := rg.Group("/me", blogAuth)
+	me.GET("/posts", h.listMyPrivatePosts)
+	me.GET("/posts/:slug", h.getMyPrivatePost)
 
 	rg.GET("/drafts", blogAuth, h.listDrafts)
 	rg.POST("/drafts", blogAuth, h.createDraft)
@@ -83,7 +78,6 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 
 	rg.POST("/drafts/:id/publish", blogAuth, h.publish)
 	rg.POST("/drafts/:id/unpublish", blogAuth, h.unpublish)
-	rg.GET("/publish-jobs/:id", blogAuth, h.getJob)
 }
 
 // ==================== Auth ====================
@@ -117,6 +111,7 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 	_ = h.repo.InsertAudit(&u.ID, "login", "")
+	setSessionCookies(c, token)
 	c.JSON(http.StatusOK, tokenResponse{
 		Token:     token,
 		ExpiresAt: exp,
@@ -126,12 +121,12 @@ func (h *Handler) login(c *gin.Context) {
 }
 
 func (h *Handler) refresh(c *gin.Context) {
-	parts := bearerParts(c)
-	if parts == "" {
+	token := requestToken(c)
+	if token == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid auth header"})
 		return
 	}
-	claims, err := ParseTokenForRefresh(parts, h.jwtSecret)
+	claims, err := ParseTokenForRefresh(token, h.jwtSecret)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
@@ -150,12 +145,19 @@ func (h *Handler) refresh(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	setSessionCookies(c, token)
 	c.JSON(http.StatusOK, tokenResponse{
 		Token:     token,
 		ExpiresAt: exp,
 		UserID:    encodeID(u.ID),
 		Username:  u.Username,
 	})
+}
+
+func (h *Handler) logout(c *gin.Context) {
+	clearSessionCookies(c)
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "logout", "")
+	c.Status(http.StatusNoContent)
 }
 
 func (h *Handler) me(c *gin.Context) {
@@ -171,6 +173,94 @@ func (h *Handler) me(c *gin.Context) {
 		"isEnabled":    u.IsEnabled,
 		"tokenVersion": u.TokenVersion,
 	})
+}
+
+// ==================== 公开 / 私有读 ====================
+
+// listPublicPosts 列出所有公开已发布文档（无正文，供首页/列表/RSS/sitemap）。
+func (h *Handler) listPublicPosts(c *gin.Context) {
+	posts, err := h.repo.ListPublishedPublic()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, posts)
+}
+
+// getPublicPost 取单篇公开已发布文档（含 markdown 正文）。
+func (h *Handler) getPublicPost(c *gin.Context) {
+	slug := c.Param("slug")
+	if !ValidSlug(slug) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+		return
+	}
+	d, err := h.repo.GetPublishedPublicBySlug(slug)
+	if err != nil {
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, d)
+}
+
+// searchPublic 全文搜索公开已发布文档。GET /posts/search?q=&page=&pageSize=
+func (h *Handler) searchPublic(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusOK, gin.H{"items": []any{}, "total": 0, "page": 1, "pageSize": 10})
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	if pageSize < 1 || pageSize > 50 {
+		pageSize = 10
+	}
+	items, total, err := h.repo.SearchPublic(q, pageSize, (page-1)*pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":    items,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	})
+}
+
+// listMyPrivatePosts 列出本人私有已发布文档。
+func (h *Handler) listMyPrivatePosts(c *gin.Context) {
+	posts, err := h.repo.ListPublishedPrivate(blogUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, posts)
+}
+
+// getMyPrivatePost 取本人私有已发布文档（含正文）。
+func (h *Handler) getMyPrivatePost(c *gin.Context) {
+	slug := c.Param("slug")
+	if !ValidSlug(slug) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+		return
+	}
+	d, err := h.repo.GetPublishedPrivateBySlug(blogUserID(c), slug)
+	if err != nil {
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, d)
 }
 
 // ==================== Drafts ====================
@@ -272,13 +362,9 @@ func (h *Handler) deleteDraft(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// 已发布或存在活跃 job 的草稿禁止直接删除，必须先撤回。
+	// 已发布草稿禁止直接删除，必须先撤回。
 	if d.Status == StatusPublished {
 		c.JSON(http.StatusConflict, gin.H{"error": "已发布草稿须先撤回再删除"})
-		return
-	}
-	if active, _ := h.repo.FindActiveJobByDraft(id); active != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "存在进行中的发布任务，无法删除"})
 		return
 	}
 	if err := h.repo.DeleteDraft(blogUserID(c), id); err != nil {
@@ -461,6 +547,8 @@ func (h *Handler) getAsset(c *gin.Context) {
 
 // ==================== Publish / Unpublish ====================
 
+// publish 把草稿置为已发布（DB 内同步翻转，不再提交 Git）。
+// 可选 body {visibility}：发布同时调整可见性；缺省保持原 visibility。
 func (h *Handler) publish(c *gin.Context) {
 	id, ok := parseIDParam(c, "id")
 	if !ok {
@@ -468,92 +556,50 @@ func (h *Handler) publish(c *gin.Context) {
 	}
 	d, err := h.repo.GetDraft(blogUserID(c), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
-		return
-	}
-	if h.publisher == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "publishing not configured"})
-		return
-	}
-	// 已发布且本地版本 == 已发布版本：无待发布修改。
-	if d.Status == StatusPublished && d.PublishedVersion != nil && d.Version == *d.PublishedVersion {
-		c.JSON(http.StatusOK, gin.H{"jobId": nil, "status": JobSucceeded, "noop": true})
-		return
-	}
-	// 幂等与崩溃恢复：Git 已提交但进程尚未完成数据库事务时，building job
-	// 带有 commit SHA。CI-only 模式下 Git 是权威源，可直接完成本地状态。
-	if active, _ := h.repo.FindActiveJobByDraft(id); active != nil {
-		if recoverableCommittedJob(active) {
-			if err := h.applyJobSucceeded(active); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"jobId": encodeID(active.ID), "commitSha": *active.CommitSha, "status": JobSucceeded,
-			})
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
 			return
 		}
-		c.JSON(http.StatusAccepted, gin.H{"jobId": encodeID(active.ID), "status": active.Status})
-		return
-	}
-	// 没有可恢复 job 的中间态属于异常状态，拒绝继续覆盖。
-	if d.Status == StatusPublishing || d.Status == StatusUnpublishing {
-		c.JSON(http.StatusConflict, gin.H{"error": "存在未完成的发布状态", "status": d.Status})
-		return
-	}
-	// 发布/更新发布前创建检查点，便于事后回滚到发布时的内容。
-	_ = h.repo.CreateCheckpoint(d)
-	job, err := h.repo.CreateJob(id, ActionPublish, d.Version)
-	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// 首次发布固定 published_at；后续更新只改 updatedAt。
-	pa := time.Now().UTC()
-	if d.PublishedAt != nil {
-		pa = d.PublishedAt.UTC()
-	} else if err := h.repo.EnsurePublishedAt(id); err != nil {
-		_ = h.repo.SetJobResult(job.ID, JobFailed, err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	files, err := h.buildPublishFiles(d, false, pa)
-	if err != nil {
-		_ = h.repo.SetJobResult(job.ID, JobFailed, err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-	commitSHA, err := h.publisher.Commit(ctx, fmt.Sprintf("content(blog): 发布 %s", d.Slug), files)
-	if err != nil {
-		msg := err.Error()
-		if errors.Is(err, ErrGitConflict) {
-			_ = h.repo.SetJobResult(job.ID, JobFailed, "git conflict")
-			c.JSON(http.StatusConflict, gin.H{"error": "git conflict", "jobId": encodeID(job.ID)})
-			return
+	vis := d.Visibility
+	var req PublishRequest
+	if err := c.ShouldBindJSON(&req); err == nil && req.Visibility != nil {
+		switch *req.Visibility {
+		case VisibilityPublic, VisibilityPrivate:
+			vis = *req.Visibility
 		}
-		_ = h.repo.SetJobResult(job.ID, JobFailed, msg)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msg, "jobId": encodeID(job.ID)})
-		return
 	}
-	// Git 提交成功即完成发布。GitHub Actions 只运行 CI，不再部署或回调；
-	// building 只作为 SetJobBuilding 与事务完成之间的短暂崩溃恢复态。
-	if err := h.repo.SetJobBuilding(job.ID, commitSHA); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	job.CommitSha = &commitSHA
-	if err := h.applyJobSucceeded(job); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Git 提交成功，但本地发布状态更新失败", "jobId": encodeID(job.ID), "commitSha": commitSHA,
+	// 已发布且无可见性变更、版本无待发布修改：no-op。
+	if d.Status == StatusPublished && d.PublishedVersion != nil && d.Version == *d.PublishedVersion && vis == d.Visibility {
+		c.JSON(http.StatusOK, gin.H{
+			"id":         encodeID(d.ID),
+			"status":     StatusPublished,
+			"visibility": d.Visibility,
+			"noop":       true,
 		})
 		return
 	}
-	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "publish", fmt.Sprintf("%s@%s", d.Slug, commitSHA))
-	c.JSON(http.StatusOK, gin.H{"jobId": encodeID(job.ID), "commitSha": commitSHA, "status": JobSucceeded})
+	// 发布前创建检查点，便于事后回滚到发布时的内容。
+	_ = h.repo.CreateCheckpoint(d)
+	updated, err := h.repo.PublishDraft(d.ID, vis)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "publish", fmt.Sprintf("%s@v%d", updated.Slug, updated.Version))
+	c.JSON(http.StatusOK, gin.H{
+		"id":              encodeID(updated.ID),
+		"status":          updated.Status,
+		"visibility":      updated.Visibility,
+		"publishedVersion": updated.PublishedVersion,
+		"publishedAt":     updated.PublishedAt,
+		"updatedAt":       updated.UpdatedAt,
+	})
 }
 
+// unpublish 把已发布草稿撤回为草稿（保留 visibility，仅改 status）。
 func (h *Handler) unpublish(c *gin.Context) {
 	id, ok := parseIDParam(c, "id")
 	if !ok {
@@ -561,257 +607,32 @@ func (h *Handler) unpublish(c *gin.Context) {
 	}
 	d, err := h.repo.GetDraft(blogUserID(c), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if h.publisher == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "publishing not configured"})
-		return
-	}
-	// 仅已发布草稿可撤回。
 	if d.Status != StatusPublished {
 		c.JSON(http.StatusConflict, gin.H{"error": "仅已发布草稿可撤回", "status": d.Status})
 		return
 	}
-	if active, _ := h.repo.FindActiveJobByDraft(id); active != nil {
-		if recoverableCommittedJob(active) {
-			if err := h.applyJobSucceeded(active); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"jobId": encodeID(active.ID), "commitSha": *active.CommitSha, "status": JobSucceeded,
-			})
-			return
-		}
-		c.JSON(http.StatusAccepted, gin.H{"jobId": encodeID(active.ID), "status": active.Status})
-		return
-	}
-	// 撤回前创建检查点。
 	_ = h.repo.CreateCheckpoint(d)
-	job, err := h.repo.CreateJob(id, ActionUnpublish, d.Version)
+	updated, err := h.repo.UnpublishDraft(d.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	pa := time.Now().UTC()
-	if d.PublishedAt != nil {
-		pa = d.PublishedAt.UTC()
-	}
-	files, err := h.buildPublishFiles(d, true, pa)
-	if err != nil {
-		_ = h.repo.SetJobResult(job.ID, JobFailed, err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-	commitSHA, err := h.publisher.Commit(ctx, fmt.Sprintf("content(blog): 撤回 %s", d.Slug), files)
-	if err != nil {
-		if errors.Is(err, ErrGitConflict) {
-			_ = h.repo.SetJobResult(job.ID, JobFailed, "git conflict")
-			c.JSON(http.StatusConflict, gin.H{"error": "git conflict", "jobId": encodeID(job.ID)})
-			return
-		}
-		_ = h.repo.SetJobResult(job.ID, JobFailed, err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "jobId": encodeID(job.ID)})
-		return
-	}
-	if err := h.repo.SetJobBuilding(job.ID, commitSHA); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	job.CommitSha = &commitSHA
-	if err := h.applyJobSucceeded(job); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Git 提交成功，但本地撤回状态更新失败", "jobId": encodeID(job.ID), "commitSha": commitSHA,
-		})
-		return
-	}
-	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "unpublish", d.Slug)
-	c.JSON(http.StatusOK, gin.H{"jobId": encodeID(job.ID), "commitSha": commitSHA, "status": JobSucceeded})
-}
-
-func (h *Handler) getJob(c *gin.Context) {
-	id, ok := parseIDParam(c, "id")
-	if !ok {
-		return
-	}
-	job, err := h.repo.GetJob(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
-		return
-	}
-	// 仅允许查询本人草稿的 job
-	if _, err := h.repo.GetDraft(blogUserID(c), job.DraftID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
-		return
-	}
-	c.JSON(http.StatusOK, job)
-}
-
-// applyJobSucceeded 在单个事务里：标记 job 成功 + 草稿状态/发布 SHA/published_version
-// + 提升图片 published_path。CI-only 模式下由发布接口在 Git 提交成功后同步调用。
-// 任一步失败整体回滚，避免出现“job 成功但草稿仍 publishing”。
-func (h *Handler) applyJobSucceeded(job *PublishJob) error {
-	tx, err := h.repo.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.Exec(
-		`UPDATE blog_publish_jobs SET status = 'succeeded', error = '', updated_at = NOW() WHERE id = $1`,
-		job.ID,
-	); err != nil {
-		return err
-	}
-	sha := ""
-	if job.CommitSha != nil {
-		sha = *job.CommitSha
-	}
-	if job.Action == ActionPublish {
-		// published_version 记录实际提交到 Git 的草稿版本，用于 hasUnpublishedChanges。
-		if _, err := tx.Exec(
-			`UPDATE blog_drafts SET status = 'published', published_commit_sha = $1, published_version = $2, updated_at = NOW() WHERE id = $3`,
-			sha, job.DraftVersion, job.DraftID,
-		); err != nil {
-			return err
-		}
-		// 把暂存 publish_path 提升为 published_path（与 Git 提交的文件路径一致）。
-		if _, err := tx.Exec(
-			`UPDATE blog_assets SET published_path = publish_path WHERE draft_id = $1 AND publish_path IS NOT NULL`,
-			job.DraftID,
-		); err != nil {
-			return err
-		}
-	} else {
-		if _, err := tx.Exec(
-			`UPDATE blog_drafts SET status = 'draft', updated_at = NOW() WHERE id = $1`,
-			job.DraftID,
-		); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// recoverableCommittedJob 判断 job 是否已经完成 Git 提交、只差本地事务。
-// queued job 尚不能推断 Git 写入成功；终结 job 也不应再次执行状态转换。
-func recoverableCommittedJob(job *PublishJob) bool {
-	return job != nil && job.Status == JobBuilding && job.CommitSha != nil && *job.CommitSha != ""
-}
-
-// RecoverInterrupted 在启动时完成崩溃恢复：
-// - building 且已有 commit_sha 的 job：Git 已提交，补完本地状态事务。
-// - 超过 10 分钟的 queued job：视为进程崩溃遗留，标记失败，允许重新发布。
-func (h *Handler) RecoverInterrupted() {
-	if jobs, err := h.repo.ListBuildingWithSha(); err == nil {
-		for _, j := range jobs {
-			if err := h.applyJobSucceeded(&j); err != nil {
-				klog.Errorf("recover building job %d: %v", j.ID, err)
-			}
-		}
-	} else {
-		klog.Errorf("list building jobs for recovery: %v", err)
-	}
-	cutoff := time.Now().Add(-10 * time.Minute)
-	if n, err := h.repo.MarkStaleQueuedFailed(cutoff); err == nil && n > 0 {
-		klog.Infof("marked %d stale queued jobs failed", n)
-	}
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "unpublish", updated.Slug)
+	c.JSON(http.StatusOK, gin.H{
+		"id":         encodeID(updated.ID),
+		"status":     updated.Status,
+		"visibility": updated.Visibility,
+		"updatedAt":  updated.UpdatedAt,
+	})
 }
 
 // ==================== Helpers ====================
-
-// buildPublishFiles 组装提交到 Git 的文件：Markdown 正文 + 草稿图片。
-// draftFlag=true 表示撤回（frontmatter draft:true，不提交新图片）。
-// publishedAt 为首次发布固定时间（后续更新只改 updatedAt）；now 为本次提交时间。
-// 发布时把正文里 /api/v1/blog/assets/:id 的预览链接改写为公开 /blog/media/...，
-// 并把计划公开路径暂存到 asset.publish_path（仅成功回调才提升为 published_path）。
-func (h *Handler) buildPublishFiles(d *Draft, draftFlag bool, publishedAt time.Time) ([]GitFile, error) {
-	now := time.Now().UTC()
-	ym := now.Format("2006/01")
-	md := d.Markdown
-	var cover = d.Cover
-
-	files := []GitFile{}
-	if !draftFlag {
-		assets, err := h.repo.ListDraftAssets(d.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, a := range assets {
-			data, err := os.ReadFile(a.StagingPath)
-			if err != nil {
-				return nil, err
-			}
-			pubPath := "/blog/media/" + ym + "/" + a.SHA256 + extOf(a.MIME)
-			repoPath := "public/media/" + ym + "/" + a.SHA256 + extOf(a.MIME)
-			files = append(files, GitFile{Path: repoPath, Content: data})
-			// 改写正文与封面里的受保护预览链接
-			preview := "/api/v1/blog/assets/" + encodeID(a.ID)
-			md = strings.ReplaceAll(md, preview, pubPath)
-			if cover != nil && *cover == preview {
-				cover = strPtr(pubPath)
-			}
-			// 暂存计划路径（不在此标记为已发布，避免提交/部署失败留下错误状态）
-			if err := h.repo.SetAssetPublishPath(a.ID, pubPath); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	body := assembleFrontmatter(d, cover, draftFlag, publishedAt, now) + md + "\n"
-	// FluxBlog 内容集合只加载 src/content/posts，必须写到这里文章才会被收录。
-	files = append([]GitFile{{Path: PostFilePath(d.Slug), Content: []byte(body)}}, files...)
-	return files, nil
-}
-
-// assembleFrontmatter 生成合法 YAML frontmatter：以 --- 闭合，正文后空一行；
-// 无封面时省略 cover（schema cover 为 optional，不接受 null）。
-// 用 JSON 序列化各值以避免转义 bug（JSON 字符串与流式数组都是合法 YAML 标量/序列）。
-func assembleFrontmatter(d *Draft, cover *string, draftFlag bool, publishedAt, now time.Time) string {
-	tags, _ := jsonMarshal(d.Tags)
-	var b strings.Builder
-	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", jsonMustMarshal(d.Title)))
-	b.WriteString(fmt.Sprintf("slug: %s\n", jsonMustMarshal(d.Slug)))
-	b.WriteString(fmt.Sprintf("description: %s\n", jsonMustMarshal(d.Description)))
-	b.WriteString(fmt.Sprintf("publishedAt: %s\n", publishedAt.Format("2006-01-02")))
-	b.WriteString(fmt.Sprintf("updatedAt: %s\n", now.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("draft: %t\n", draftFlag))
-	b.WriteString(fmt.Sprintf("tags: %s\n", tags))
-	if cover != nil && *cover != "" {
-		b.WriteString(fmt.Sprintf("cover: %s\n", jsonMustMarshal(*cover)))
-	}
-	b.WriteString("---\n\n")
-	return b.String()
-}
-
-func extOf(mime string) string {
-	switch {
-	case strings.Contains(mime, "png"):
-		return ".png"
-	case strings.Contains(mime, "jpeg") || strings.Contains(mime, "jpg"):
-		return ".jpg"
-	case strings.Contains(mime, "webp"):
-		return ".webp"
-	case strings.Contains(mime, "gif"):
-		return ".gif"
-	default:
-		return ".webp"
-	}
-}
-
-func bearerParts(c *gin.Context) string {
-	header := c.GetHeader("Authorization")
-	if header == "" {
-		return ""
-	}
-	parts := strings.SplitN(header, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return ""
-	}
-	return parts[1]
-}
 
 func int64Ptr(v int64) *int64 { return &v }

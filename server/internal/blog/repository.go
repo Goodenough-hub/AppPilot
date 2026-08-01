@@ -204,12 +204,12 @@ func (r *Repository) VerifyPassword(u *BlogUser, password string) error {
 
 // ==================== Draft ====================
 
-const draftCols = "id, user_id, slug, title, description, tags, cover, markdown, status, version, published_commit_sha, published_version, published_at, created_at, updated_at"
+const draftCols = "id, user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_commit_sha, published_version, published_at, created_at, updated_at"
 
 func scanDraft(sc func(...any) error) (*Draft, error) {
 	d := &Draft{}
 	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
-		&d.Cover, &d.Markdown, &d.Status, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt)
+		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -281,12 +281,16 @@ func (r *Repository) CreateDraft(userID int64, d Draft) (*Draft, error) {
 	if tags == nil {
 		tags = []string{}
 	}
+	vis := d.Visibility
+	if vis == "" {
+		vis = VisibilityPrivate
+	}
 	out, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,'draft')
+			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status, visibility)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)
 			 RETURNING `+draftCols,
-			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown,
+			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown, vis,
 		).Scan(dst...)
 	})
 	if err != nil {
@@ -336,6 +340,9 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 	}
 	if req.Markdown != nil {
 		add("markdown", "", *req.Markdown)
+	}
+	if req.Visibility != nil && (*req.Visibility == VisibilityPublic || *req.Visibility == VisibilityPrivate) {
+		add("visibility", "", *req.Visibility)
 	}
 	args = append(args, id, userID, baseVersion) // $n, $n+1, $n+2
 
@@ -434,72 +441,240 @@ func (r *Repository) SetDraftStatus(id int64, status string) error {
 	return err
 }
 
-// SetPublished 标记草稿已发布：status=published、记录 commit SHA。
-func (r *Repository) SetPublished(id int64, commitSha string) error {
-	_, err := r.db.Exec(
-		`UPDATE blog_drafts SET status = $1, published_commit_sha = $2, updated_at = NOW() WHERE id = $3`,
-		StatusPublished, commitSha, id,
-	)
-	return err
-}
-
-// EnsurePublishedAt 首次发布时固定 published_at（仅当仍为 NULL 时写入）。
-// 后续更新只改 updatedAt，publishedAt 保持首次发布时间不变。
-func (r *Repository) EnsurePublishedAt(id int64) error {
-	_, err := r.db.Exec(
-		`UPDATE blog_drafts SET published_at = NOW() WHERE id = $1 AND published_at IS NULL`,
-		id,
-	)
-	return err
-}
-
-// FindBuildingJobByCommit 按 Git commit SHA 查找未终结的 job。
-// GitHub Actions 无法获知 AppPilot 内部 jobId，回调只能凭 commitSha 定位 job。
-func (r *Repository) FindBuildingJobByCommit(commitSha string) (*PublishJob, error) {
-	if commitSha == "" {
-		return nil, nil
-	}
-	j, err := scanJob(func(dst ...any) error {
+// PublishDraft 同步发布：status=published、published_version=version、
+// published_at=COALESCE(已有, NOW())、visibility 按入参更新。返回最新草稿。
+func (r *Repository) PublishDraft(id int64, visibility string) (*Draft, error) {
+	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE commit_sha = $1 AND status = 'building'
-			 ORDER BY created_at DESC LIMIT 1`,
-			commitSha,
+			`UPDATE blog_drafts
+			 SET status = $1, visibility = $2, published_version = version,
+			     published_at = COALESCE(published_at, NOW()), updated_at = NOW()
+			 WHERE id = $3
+			 RETURNING `+draftCols,
+			StatusPublished, visibility, id,
 		).Scan(dst...)
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, ErrDraftNotFound
 		}
 		return nil, err
 	}
-	return j, nil
+	return d, nil
 }
 
-// FindJobByCommitAnySha 按 commitSha 查找任意状态的 job（幂等：已终结 job 不重复处理）。
-func (r *Repository) FindJobByCommitAnySha(commitSha string) (*PublishJob, error) {
-	if commitSha == "" {
-		return nil, nil
-	}
-	j, err := scanJob(func(dst ...any) error {
+// UnpublishDraft 撤回：status=draft（保留 visibility、published_at、published_version）。
+func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
+	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE commit_sha = $1
-			 ORDER BY created_at DESC LIMIT 1`,
-			commitSha,
+			`UPDATE blog_drafts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING `+draftCols,
+			StatusDraft, id,
 		).Scan(dst...)
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, ErrDraftNotFound
 		}
 		return nil, err
 	}
-	return j, nil
+	return d, nil
 }
 
-// MarkDraftAssetsPublished 已由 PromoteDraftAssetsPublished 取代（回调提升暂存路径）。
-// 保留旧名以兼容调用方，内部转调 PromoteDraftAssetsPublished。
-func (r *Repository) MarkDraftAssetsPublished(draftID int64, _ string) error {
-	return r.PromoteDraftAssetsPublished(draftID)
+// ==================== 公开 / 私有读 ====================
+
+// summaryCols 是列表场景的精简列：不含 markdown 正文。
+const summaryCols = "id, slug, title, description, tags, cover, status, visibility, version, published_at, updated_at"
+
+func scanDraftSummary(sc func(...any) error) (*DraftSummary, error) {
+	s := &DraftSummary{}
+	err := sc(&s.ID, &s.Slug, &s.Title, &s.Description, pq.Array(&s.Tags),
+		&s.Cover, &s.Status, &s.Visibility, &s.Version, &s.PublishedAt, &s.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if s.Tags == nil {
+		s.Tags = []string{}
+	}
+	return s, nil
+}
+
+// ListPublishedPublic 列出所有公开已发布文档（任何人都可读），按更新时间倒序。
+func (r *Repository) ListPublishedPublic() ([]DraftSummary, error) {
+	rows, err := r.db.Query(
+		`SELECT `+summaryCols+` FROM blog_drafts
+		 WHERE visibility = $1 AND status = $2 ORDER BY COALESCE(updated_at, published_at) DESC`,
+		VisibilityPublic, StatusPublished,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DraftSummary{}
+	for rows.Next() {
+		s, err := scanDraftSummary(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *s)
+	}
+	return out, rows.Err()
+}
+
+// GetPublishedPublicBySlug 取单篇公开已发布文档（含 markdown 正文）。
+func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
+	d, err := scanDraft(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+draftCols+` FROM blog_drafts
+			 WHERE slug = $1 AND visibility = $2 AND status = $3`,
+			slug, VisibilityPublic, StatusPublished,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDraftNotFound
+		}
+		return nil, err
+	}
+	return d, nil
+}
+
+// SearchPublic 全文搜索公开已发布文档（首版 ILIKE）。返回 (结果, 总数)。
+func (r *Repository) SearchPublic(q string, limit, offset int) ([]DraftSummary, int, error) {
+	pattern := "%" + q + "%"
+	rows, err := r.db.Query(
+		`SELECT `+summaryCols+` FROM blog_drafts
+		 WHERE visibility = $1 AND status = $2
+		   AND (title ILIKE $3 OR description ILIKE $3 OR markdown ILIKE $3)
+		 ORDER BY COALESCE(updated_at, published_at) DESC
+		 LIMIT $4 OFFSET $5`,
+		VisibilityPublic, StatusPublished, pattern, limit, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []DraftSummary{}
+	for rows.Next() {
+		s, err := scanDraftSummary(rows.Scan)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := r.db.QueryRow(
+		`SELECT COUNT(*) FROM blog_drafts
+		 WHERE visibility = $1 AND status = $2
+		   AND (title ILIKE $3 OR description ILIKE $3 OR markdown ILIKE $3)`,
+		VisibilityPublic, StatusPublished, pattern,
+	).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+// ListPublishedPrivate 列出本人私有已发布文档。
+func (r *Repository) ListPublishedPrivate(userID int64) ([]DraftSummary, error) {
+	rows, err := r.db.Query(
+		`SELECT `+summaryCols+` FROM blog_drafts
+		 WHERE user_id = $1 AND visibility = $2 AND status = $3
+		 ORDER BY COALESCE(updated_at, published_at) DESC`,
+		userID, VisibilityPrivate, StatusPublished,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DraftSummary{}
+	for rows.Next() {
+		s, err := scanDraftSummary(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *s)
+	}
+	return out, rows.Err()
+}
+
+// GetPublishedPrivateBySlug 取本人私有已发布文档（含 markdown 正文）。
+func (r *Repository) GetPublishedPrivateBySlug(userID int64, slug string) (*Draft, error) {
+	d, err := scanDraft(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+draftCols+` FROM blog_drafts
+			 WHERE user_id = $1 AND slug = $2 AND visibility = $3 AND status = $4`,
+			userID, slug, VisibilityPrivate, StatusPublished,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDraftNotFound
+		}
+		return nil, err
+	}
+	return d, nil
+}
+
+// DraftIsPublicPublished 判断草稿是否公开已发布（用于匿名读取其图片资产）。
+func (r *Repository) DraftIsPublicPublished(draftID int64) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM blog_drafts WHERE id = $1 AND visibility = $2 AND status = $3)`,
+		draftID, VisibilityPublic, StatusPublished,
+	).Scan(&exists)
+	return exists, err
+}
+
+// ImportDraft 幂等导入：ON CONFLICT (slug) DO UPDATE。visibility 固定 public。
+// published=true → status=published、published_version=version、published_at 用给定时间或 NOW()。
+// 用于 import-blog CLI 把存量 Markdown 迁移入库。
+func (r *Repository) ImportDraft(userID int64, d Draft, publishedAt *time.Time, published bool) (*Draft, error) {
+	if !ValidSlug(d.Slug) {
+		return nil, fmt.Errorf("invalid slug")
+	}
+	tags := d.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	status := StatusDraft
+	var pubVersion *int64
+	if published {
+		status = StatusPublished
+		v := d.Version
+		if v == 0 {
+			v = 1
+		}
+		pubVersion = &v
+	}
+	out, err := scanDraft(func(dst ...any) error {
+		return r.db.QueryRow(
+			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_version, published_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12, NOW()))
+			 ON CONFLICT (slug) DO UPDATE SET
+			   title = EXCLUDED.title,
+			   description = EXCLUDED.description,
+			   tags = EXCLUDED.tags,
+			   cover = EXCLUDED.cover,
+			   markdown = EXCLUDED.markdown,
+			   status = EXCLUDED.status,
+			   visibility = EXCLUDED.visibility,
+			   version = EXCLUDED.version,
+			   published_version = EXCLUDED.published_version,
+			   published_at = COALESCE(blog_drafts.published_at, EXCLUDED.published_at),
+			   updated_at = NOW()
+			 RETURNING `+draftCols,
+			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown,
+			status, VisibilityPublic, d.Version, pubVersion, publishedAt,
+		).Scan(dst...)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// 导入后保存一个检查点，便于事后回滚。
+	_ = r.insertCheckpoint(out)
+	return out, nil
 }
 
 // ==================== DraftVersion ====================
@@ -602,12 +777,12 @@ func trimVersionsTx(db *sql.DB, draftID int64) error {
 
 // ==================== Asset ====================
 
-const assetCols = "id, user_id, draft_id, sha256, filename, mime, size, staging_path, publish_path, published_path, created_at"
+const assetCols = "id, user_id, draft_id, sha256, filename, mime, size, staging_path, created_at"
 
 func scanAsset(sc func(...any) error) (*Asset, error) {
 	a := &Asset{}
 	err := sc(&a.ID, &a.UserID, &a.DraftID, &a.SHA256, &a.Filename, &a.MIME, &a.Size,
-		&a.StagingPath, &a.PublishPath, &a.PublishedPath, &a.CreatedAt)
+		&a.StagingPath, &a.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -640,146 +815,6 @@ func (r *Repository) GetAsset(id int64) (*Asset, error) {
 		return nil, err
 	}
 	return a, nil
-}
-
-// ListDraftAssets 返回某草稿下所有图片（发布时一并提交）。
-func (r *Repository) ListDraftAssets(draftID int64) ([]Asset, error) {
-	rows, err := r.db.Query(`SELECT `+assetCols+` FROM blog_assets WHERE draft_id = $1 ORDER BY id`, draftID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Asset{}
-	for rows.Next() {
-		a, err := scanAsset(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *a)
-	}
-	return out, rows.Err()
-}
-
-// SetAssetPublishPath 暂存计划公开路径（发布提交前写，与 Git 提交的文件路径一致）。
-// 它不是 published_path：仅当发布成功回调时才把 publish_path 提升为 published_path。
-func (r *Repository) SetAssetPublishPath(id int64, publishPath string) error {
-	_, err := r.db.Exec(`UPDATE blog_assets SET publish_path = $1 WHERE id = $2`, publishPath, id)
-	return err
-}
-
-// PromoteDraftAssetsPublished 发布成功回调：把暂存 publish_path 提升为 published_path。
-func (r *Repository) PromoteDraftAssetsPublished(draftID int64) error {
-	_, err := r.db.Exec(
-		`UPDATE blog_assets SET published_path = publish_path WHERE draft_id = $1 AND publish_path IS NOT NULL`,
-		draftID,
-	)
-	return err
-}
-
-// ==================== PublishJob ====================
-
-const jobCols = "id, draft_id, draft_version, action, commit_sha, status, error, created_at, updated_at"
-
-func scanJob(sc func(...any) error) (*PublishJob, error) {
-	j := &PublishJob{}
-	err := sc(&j.ID, &j.DraftID, &j.DraftVersion, &j.Action, &j.CommitSha, &j.Status, &j.Error, &j.CreatedAt, &j.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return j, nil
-}
-
-func (r *Repository) CreateJob(draftID int64, action string, draftVersion int64) (*PublishJob, error) {
-	j, err := scanJob(func(dst ...any) error {
-		return r.db.QueryRow(
-			`INSERT INTO blog_publish_jobs (draft_id, draft_version, action, status) VALUES ($1,$2,$3,'queued')
-			 RETURNING `+jobCols,
-			draftID, draftVersion, action,
-		).Scan(dst...)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return j, nil
-}
-
-func (r *Repository) GetJob(id int64) (*PublishJob, error) {
-	j, err := scanJob(func(dst ...any) error {
-		return r.db.QueryRow(`SELECT `+jobCols+` FROM blog_publish_jobs WHERE id = $1`, id).Scan(dst...)
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrJobNotFound
-		}
-		return nil, err
-	}
-	return j, nil
-}
-
-// FindActiveJobByDraft 返回某草稿未终结的 job（queued/building），用于发布幂等。
-func (r *Repository) FindActiveJobByDraft(draftID int64) (*PublishJob, error) {
-	j, err := scanJob(func(dst ...any) error {
-		return r.db.QueryRow(
-			`SELECT `+jobCols+` FROM blog_publish_jobs WHERE draft_id = $1 AND status IN ('queued','building')
-			 ORDER BY created_at DESC LIMIT 1`,
-			draftID,
-		).Scan(dst...)
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return j, nil
-}
-
-// ListBuildingWithSha 返回所有 building 且已有 commit_sha 的 job（启动崩溃恢复用）。
-func (r *Repository) ListBuildingWithSha() ([]PublishJob, error) {
-	rows, err := r.db.Query(`SELECT ` + jobCols + ` FROM blog_publish_jobs WHERE status = 'building' AND commit_sha IS NOT NULL AND commit_sha <> ''`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []PublishJob{}
-	for rows.Next() {
-		j, err := scanJob(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *j)
-	}
-	return out, rows.Err()
-}
-
-// MarkStaleQueuedFailed 把早于 cutoff 的 queued job 标记失败（进程崩溃后允许重新发布）。
-func (r *Repository) MarkStaleQueuedFailed(cutoff time.Time) (int64, error) {
-	res, err := r.db.Exec(
-		`UPDATE blog_publish_jobs SET status = 'failed', error = 'stale queued job on startup', updated_at = NOW()
-		 WHERE status = 'queued' AND created_at < $1`,
-		cutoff,
-	)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
-}
-
-func (r *Repository) SetJobBuilding(id int64, commitSha string) error {
-	_, err := r.db.Exec(
-		`UPDATE blog_publish_jobs SET status = 'building', commit_sha = $1, updated_at = NOW() WHERE id = $2`,
-		commitSha, id,
-	)
-	return err
-}
-
-func (r *Repository) SetJobResult(id int64, status, errMsg string) error {
-	_, err := r.db.Exec(
-		`UPDATE blog_publish_jobs SET status = $1, error = $2, updated_at = NOW() WHERE id = $3`,
-		status, errMsg, id,
-	)
-	return err
 }
 
 // ==================== AuditLog ====================

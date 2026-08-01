@@ -17,22 +17,10 @@ const (
 	StatusUnpublishing = "unpublishing"
 )
 
-// Publish job 状态：
-//
-//	queued   —— 已创建 job，尚未调用 Git
-//	building —— Git 提交成功、数据库完成事务前的短暂恢复态
-//	succeeded —— Git 提交成功且本地状态事务完成
-//	failed   —— Git 提交失败，仓库内容不变
+// 可见性：public 公开（任何人可读），private 仅作者可读。
 const (
-	JobQueued    = "queued"
-	JobBuilding  = "building"
-	JobSucceeded = "succeeded"
-	JobFailed    = "failed"
-)
-
-const (
-	ActionPublish   = "publish"
-	ActionUnpublish = "unpublish"
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
 )
 
 // BlogUser 是 FluxBlog 独立账号，与 finflow/admin 的 users 表隔离。
@@ -58,6 +46,7 @@ type Draft struct {
 	Cover                 *string    `json:"cover"`
 	Markdown              string     `json:"markdown"`
 	Status                string     `json:"status"`
+	Visibility            string     `json:"visibility"`
 	Version               int64      `json:"version"`
 	PublishedCommitSha    *string    `json:"publishedCommitSha,omitempty"`
 	PublishedVersion      *int64     `json:"publishedVersion,omitempty"`
@@ -87,22 +76,8 @@ type Asset struct {
 	Filename      string    `json:"filename"`
 	MIME          string    `json:"mime"`
 	Size          int64     `json:"size"`
-	StagingPath   string    `json:"-"` // 服务端路径，不外泄
-	PublishPath   *string   `json:"-"` // 计划公开路径（暂存，成功回调才转 published_path）
-	PublishedPath *string   `json:"publishedPath,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
-
-type PublishJob struct {
-	ID           int64     `json:"id"`
-	DraftID      int64     `json:"draftId"`
-	DraftVersion *int64    `json:"draftVersion,omitempty"`
-	Action       string    `json:"action"`
-	CommitSha    *string   `json:"commitSha,omitempty"`
-	Status       string    `json:"status"`
-	Error        string    `json:"error,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	StagingPath string `json:"-"` // 服务端路径，不外泄
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type AuditLog struct {
@@ -127,6 +102,7 @@ type CreateDraftRequest struct {
 	Tags        []string `json:"tags"`
 	Cover       *string  `json:"cover"`
 	Markdown    string   `json:"markdown"`
+	Visibility  *string  `json:"visibility"`
 }
 
 // UpdateDraftRequest 必须提交 BaseVersion 做乐观锁；冲突返回 409。
@@ -137,7 +113,28 @@ type UpdateDraftRequest struct {
 	Tags        []string `json:"tags"`
 	Cover       *string  `json:"cover"`
 	Markdown    *string  `json:"markdown"`
+	Visibility  *string  `json:"visibility"`
 	BaseVersion int64    `json:"baseVersion" binding:"required"`
+}
+
+// PublishRequest 可选携带 visibility：发布同时调整可见性。缺省保持原 visibility。
+type PublishRequest struct {
+	Visibility *string `json:"visibility"`
+}
+
+// DraftSummary 是列表场景的精简视图：不含 markdown 正文。
+type DraftSummary struct {
+	ID           int64      `json:"id"`
+	Slug         string     `json:"slug"`
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Tags         []string   `json:"tags"`
+	Cover        *string    `json:"cover,omitempty"`
+	Status       string     `json:"status"`
+	Visibility   string     `json:"visibility"`
+	Version      int64      `json:"version"`
+	PublishedAt  *time.Time `json:"publishedAt,omitempty"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
 // ---- Admin 管理 blog 账号的请求体 ----

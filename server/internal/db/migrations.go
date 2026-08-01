@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS blog_drafts (
     cover               VARCHAR(512),
     markdown            TEXT NOT NULL DEFAULT '',
     status              VARCHAR(16) NOT NULL DEFAULT 'draft',
+    visibility          VARCHAR(16) NOT NULL DEFAULT 'private',
     version             BIGINT NOT NULL DEFAULT 1,
     published_commit_sha VARCHAR(64),
     published_version   BIGINT,
@@ -277,25 +278,10 @@ CREATE TABLE IF NOT EXISTS blog_assets (
     mime           VARCHAR(128) NOT NULL,
     size           BIGINT NOT NULL,
     staging_path   TEXT NOT NULL,
-    publish_path   TEXT,
-    published_path TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_blog_assets_user ON blog_assets(user_id);
 CREATE INDEX IF NOT EXISTS idx_blog_assets_sha ON blog_assets(sha256);
-
-CREATE TABLE IF NOT EXISTS blog_publish_jobs (
-    id            BIGSERIAL PRIMARY KEY,
-    draft_id      BIGINT NOT NULL REFERENCES blog_drafts(id) ON DELETE CASCADE,
-    draft_version BIGINT,
-    action        VARCHAR(16) NOT NULL,
-    commit_sha    VARCHAR(64),
-    status        VARCHAR(16) NOT NULL DEFAULT 'queued',
-    error         TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_blog_publish_jobs_draft ON blog_publish_jobs(draft_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS blog_audit_logs (
     id         BIGSERIAL PRIMARY KEY,
@@ -316,17 +302,19 @@ func MigrateBlog(db *sql.DB) error {
 	stmts := []string{
 		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
 		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS published_version BIGINT`,
-		`ALTER TABLE blog_assets ADD COLUMN IF NOT EXISTS publish_path TEXT`,
-		`ALTER TABLE blog_publish_jobs ADD COLUMN IF NOT EXISTS draft_version BIGINT`,
+		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) NOT NULL DEFAULT 'private'`,
+		`CREATE INDEX IF NOT EXISTS idx_blog_drafts_visibility ON blog_drafts(visibility, status)`,
+		// blog_publish_jobs 已废弃：发布改为 DB 内同步翻转，不再有 job 表。
+		`DROP TABLE IF EXISTS blog_publish_jobs`,
+		// blog_assets 的 publish_path/published_path 已废弃（图片不再经 Git 提交）。
+		`ALTER TABLE blog_assets DROP COLUMN IF EXISTS publish_path`,
+		`ALTER TABLE blog_assets DROP COLUMN IF EXISTS published_path`,
 		// blog_draft_versions 去重：保留每 (draft_id, version) id 最大的一条，
 		// 再建唯一索引，保证检查点版本唯一。
 		`DELETE FROM blog_draft_versions a USING blog_draft_versions b
 		 WHERE a.draft_id = b.draft_id AND a.version = b.version AND a.id < b.id`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_draft_versions_draft_version
 		 ON blog_draft_versions(draft_id, version)`,
-		// 一个草稿最多一个未终结 job（queued/building），消除发布接口的并发窗口。
-		`CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_publish_jobs_active
-		 ON blog_publish_jobs(draft_id) WHERE status IN ('queued','building')`,
 		// 老库可能用列级 UNIQUE(username) 全局约束，软删除后无法重建同名账号。
 		// 若存在则删除（仅当存在；PG 支持 IF EXISTS）。
 		`ALTER TABLE blog_users DROP CONSTRAINT IF EXISTS blog_users_username_key`,
