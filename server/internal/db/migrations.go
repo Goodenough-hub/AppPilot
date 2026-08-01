@@ -144,6 +144,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateDigitalServiceTree(db); err != nil {
 		return err
 	}
+	// 业务迁移：老用户补「生活」顶级分类
+	if err := migrateLifeTree(db); err != nil {
+		return err
+	}
 	// 业务迁移：老用户「餐饮」补「夜宵」「小吃」「饮料」（晚餐后）
 	if err := migrateInsertAfterParent(db, "餐饮", "晚餐", []seedNode{
 		{Name: "夜宵", Icon: "🌙", Color: "#6366F1"},
@@ -184,6 +188,12 @@ func Migrate(db *sql.DB) error {
 	}
 	// 业务迁移：旅游专属分类升级为「组 + 叶子」两层结构（scope='trip'）
 	if err := MigrateTripCategoriesV2(db); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「数字服务」补「通讯」（云服务后）
+	if err := migrateInsertAfterParent(db, "数字服务", "云服务", []seedNode{
+		{Name: "通讯", Icon: "📱", Color: "#3B82F6"},
+	}); err != nil {
 		return err
 	}
 	// FluxBlog：独立博客表族（与 users/transactions 完全隔离）。
