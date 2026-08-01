@@ -39,7 +39,8 @@ var expenseTree = []seedNode{
 		{Name: "拼多多", Icon: "🛒", Color: "#EF4444", Order: 102},
 		{Name: "抖音", Icon: "🎵", Color: "#6B7280", Order: 103},
 		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 104},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
+		{Name: "线下购物", Icon: "🏬", Color: "#8B5CF6", Order: 105},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
 	{Name: "住房", Icon: "🏠", Color: "#10B981", Order: 3, Children: []seedNode{
 		{Name: "租金", Icon: "🔑", Color: "#10B981", Order: 100},

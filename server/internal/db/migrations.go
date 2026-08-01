@@ -180,6 +180,12 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：老用户「购物」补「线下购物」（外卖后）
+	if err := migrateInsertAfterParent(db, "购物", "外卖", []seedNode{
+		{Name: "线下购物", Icon: "🏬", Color: "#8B5CF6"},
+	}); err != nil {
+		return err
+	}
 	// 业务迁移：老用户「住房」补「酒店」（物业后）
 	if err := migrateInsertAfterParent(db, "住房", "物业", []seedNode{
 		{Name: "酒店", Icon: "🏨", Color: "#3B82F6"},
