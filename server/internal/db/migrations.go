@@ -231,9 +231,46 @@ CREATE INDEX IF NOT EXISTS idx_ae_event_type ON analytics_events(app, event_type
 `); err != nil {
 		return err
 	}
+	// 管理后台看板：dashboards + dashboard_widgets（admin 可编辑的仪表盘）。
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS dashboards (
+    id          BIGSERIAL PRIMARY KEY,
+    app         TEXT NOT NULL UNIQUE,
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_widgets (
+    id           BIGSERIAL PRIMARY KEY,
+    dashboard_id BIGINT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+    type         TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    data_source  TEXT NOT NULL,
+    config       JSONB DEFAULT '{}',
+    grid_x       INT NOT NULL DEFAULT 0,
+    grid_y       INT NOT NULL DEFAULT 0,
+    grid_w       INT NOT NULL DEFAULT 4,
+    grid_h       INT NOT NULL DEFAULT 3,
+    sort_order   INT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_dw_dashboard ON dashboard_widgets(dashboard_id, sort_order);
+	`); err != nil {
+		return err
+	}
 	// FluxBlog：独立博客表族（与 users/transactions 完全隔离）。
 	// blog_users 软删除 + token_version 使停用/删除账号的现有令牌立即失效。
-	return MigrateBlog(db)
+	if err := MigrateBlog(db); err != nil {
+		return err
+	}
+	// 默认看板 seed：为每个已知 app 创建默认 dashboard + widgets（幂等）。
+	if err := SeedDashboards(db); err != nil {
+		return err
+	}
+	return nil
 }
 
 // blogSchema 是 FluxBlog 的独立表族。与 finflow 的 users/transactions 等
