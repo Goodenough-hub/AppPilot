@@ -118,9 +118,9 @@ export async function queryDataSource(
   key: string,
   params?: Record<string, any>
 ): Promise<ChartData[]> {
-  const { data } = await apiClient.post<ChartData[]>(
+  const { data } = await apiClient.post<{ key: string; data: ChartData[] }>(
     `/admin/datasources/${key}/query`,
     params ?? {}
   )
-  return data
+  return data.data
 }
