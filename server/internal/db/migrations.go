@@ -291,6 +291,18 @@ CREATE TABLE IF NOT EXISTS blog_audit_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_blog_audit_logs_user ON blog_audit_logs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS blog_projects (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES blog_users(id) ON DELETE RESTRICT,
+    name       VARCHAR(128) NOT NULL,
+    intro      TEXT NOT NULL DEFAULT '',
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_projects_user_name ON blog_projects(user_id, name);
+CREATE INDEX IF NOT EXISTS idx_blog_projects_user_order ON blog_projects(user_id, sort_order);
 `
 
 // MigrateBlog 创建 FluxBlog 独立表族。幂等，由 db.Migrate 调用。
@@ -318,6 +330,9 @@ func MigrateBlog(db *sql.DB) error {
 		// 老库可能用列级 UNIQUE(username) 全局约束，软删除后无法重建同名账号。
 		// 若存在则删除（仅当存在；PG 支持 IF EXISTS）。
 		`ALTER TABLE blog_users DROP CONSTRAINT IF EXISTS blog_users_username_key`,
+		// blog_projects 表 + blog_drafts.project_id 外键（project 管理功能）。
+		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES blog_projects(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_blog_drafts_project ON blog_drafts(project_id) WHERE project_id IS NOT NULL`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

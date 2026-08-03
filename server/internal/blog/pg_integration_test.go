@@ -33,7 +33,7 @@ func truncateBlog(t *testing.T, pg *sql.DB) {
 	t.Helper()
 	for _, tbl := range []string{
 		"blog_audit_logs", "blog_draft_versions",
-		"blog_assets", "blog_drafts", "blog_users",
+		"blog_assets", "blog_drafts", "blog_projects", "blog_users",
 	} {
 		if _, err := pg.Exec("TRUNCATE TABLE " + tbl + " RESTART IDENTITY CASCADE"); err != nil {
 			t.Fatalf("truncate %s: %v", tbl, err)
@@ -219,7 +219,7 @@ func TestVisibilityFilter(t *testing.T) {
 	publishForTest(t, repo, pub.ID)
 	publishForTest(t, repo, priv.ID)
 
-	got, err := repo.ListPublishedPublic()
+	got, err := repo.ListPublishedPublic(nil)
 	if err != nil {
 		t.Fatalf("list public: %v", err)
 	}
@@ -339,11 +339,151 @@ func TestSearchPublic(t *testing.T) {
 	publishForTest(t, repo, pub.ID)
 	publishForTest(t, repo, priv.ID)
 
-	items, total, err := repo.SearchPublic("关键词", 10, 0)
+	items, total, err := repo.SearchPublic("关键词", nil, 10, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
 	if total != 1 || len(items) != 1 || items[0].Slug != "s-pub" {
 		t.Fatalf("search = total=%d items=%+v, want only s-pub", total, items)
+	}
+}
+
+// TestProjectCRUD 创建、重命名冲突、删除后 draft.project_id 变 NULL。
+func TestProjectCRUD(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	p, err := repo.CreateProject(uid, Project{Name: "我的项目", Intro: "简介"})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if p.ID == 0 || p.Name != "我的项目" || p.Intro != "简介" {
+		t.Fatalf("created project = %+v", p)
+	}
+
+	_, err = repo.CreateProject(uid, Project{Name: "我的项目", Intro: ""})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("create dup name: err=%v want ErrConflict", err)
+	}
+
+	d, err := repo.CreateDraft(uid, Draft{Slug: "p1", Title: "T", ProjectID: &p.ID})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if d.ProjectID == nil || *d.ProjectID != p.ID {
+		t.Fatalf("draft projectID = %v, want %d", d.ProjectID, p.ID)
+	}
+
+	if err := repo.DeleteProject(uid, p.ID); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	d2, err := repo.GetDraft(uid, d.ID)
+	if err != nil {
+		t.Fatalf("get draft: %v", err)
+	}
+	if d2.ProjectID != nil {
+		t.Fatalf("draft projectID after delete = %v, want nil", d2.ProjectID)
+	}
+}
+
+// TestProjectReorder 排序。
+func TestProjectReorder(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	p1, _ := repo.CreateProject(uid, Project{Name: "A"})
+	p2, _ := repo.CreateProject(uid, Project{Name: "B"})
+	p3, _ := repo.CreateProject(uid, Project{Name: "C"})
+
+	if err := repo.ReorderProjects(uid, []ReorderItem{
+		{ID: p3.ID, SortOrder: 1000},
+		{ID: p1.ID, SortOrder: 2000},
+		{ID: p2.ID, SortOrder: 3000},
+	}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+
+	list, _ := repo.ListProjects(uid)
+	if len(list) != 3 || list[0].ID != p3.ID || list[1].ID != p1.ID || list[2].ID != p2.ID {
+		t.Fatalf("reorder list = %+v", list)
+	}
+}
+
+// TestDraftProjectAssignment SetDraftProject 切换/清除归属。
+func TestDraftProjectAssignment(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	p1, _ := repo.CreateProject(uid, Project{Name: "P1"})
+	p2, _ := repo.CreateProject(uid, Project{Name: "P2"})
+	d, _ := repo.CreateDraft(uid, Draft{Slug: "a", Title: "A", ProjectID: &p1.ID})
+
+	if err := repo.SetDraftProject(uid, d.ID, &p2.ID); err != nil {
+		t.Fatalf("set to p2: %v", err)
+	}
+	d2, _ := repo.GetDraft(uid, d.ID)
+	if d2.ProjectID == nil || *d2.ProjectID != p2.ID {
+		t.Fatalf("draft projectID after switch = %v, want %d", d2.ProjectID, p2.ID)
+	}
+
+	if err := repo.SetDraftProject(uid, d.ID, nil); err != nil {
+		t.Fatalf("clear project: %v", err)
+	}
+	d3, _ := repo.GetDraft(uid, d.ID)
+	if d3.ProjectID != nil {
+		t.Fatalf("draft projectID after clear = %v, want nil", d3.ProjectID)
+	}
+}
+
+// TestPublicProjectListWithCount 公开列表计数只算已发布公开文章。
+func TestPublicProjectListWithCount(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	p, _ := repo.CreateProject(uid, Project{Name: "P"})
+
+	d1, _ := repo.CreateDraft(uid, Draft{Slug: "priv", Title: "Priv", Visibility: "private", ProjectID: &p.ID})
+	publishForTest(t, repo, d1.ID)
+
+	d2, _ := repo.CreateDraft(uid, Draft{Slug: "pub", Title: "Pub", Visibility: "public", ProjectID: &p.ID})
+	publishForTest(t, repo, d2.ID)
+
+	list, _ := repo.ListPublicProjectsWithCount()
+	if len(list) != 1 || list[0].PostCount != 1 {
+		t.Fatalf("public projects = %+v, want postCount=1", list)
+	}
+}
+
+// TestListPublicPostsFilterByProject 按 projectId 过滤公开文章。
+func TestListPublicPostsFilterByProject(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	p1, _ := repo.CreateProject(uid, Project{Name: "P1"})
+	p2, _ := repo.CreateProject(uid, Project{Name: "P2"})
+
+	d1, _ := repo.CreateDraft(uid, Draft{Slug: "a", Title: "A", Visibility: "public", ProjectID: &p1.ID})
+	d2, _ := repo.CreateDraft(uid, Draft{Slug: "b", Title: "B", Visibility: "public", ProjectID: &p2.ID})
+	publishForTest(t, repo, d1.ID)
+	publishForTest(t, repo, d2.ID)
+
+	all, _ := repo.ListPublishedPublic(nil)
+	if len(all) != 2 {
+		t.Fatalf("all = %d, want 2", len(all))
+	}
+
+	p1Posts, _ := repo.ListPublishedPublic(&p1.ID)
+	if len(p1Posts) != 1 || p1Posts[0].Slug != "a" {
+		t.Fatalf("p1 filter = %+v", p1Posts)
 	}
 }

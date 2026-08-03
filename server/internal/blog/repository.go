@@ -204,12 +204,16 @@ func (r *Repository) VerifyPassword(u *BlogUser, password string) error {
 
 // ==================== Draft ====================
 
-const draftCols = "id, user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_commit_sha, published_version, published_at, created_at, updated_at"
+const draftCols = "d.id, d.user_id, d.slug, d.title, d.description, d.tags, d.cover, d.markdown, d.status, d.visibility, d.version, d.published_commit_sha, d.published_version, d.published_at, d.created_at, d.updated_at, d.project_id, p.name AS project_name"
+
+// draftRetCols 是 blog_drafts 表本身的列（无前缀/无 JOIN），用于 INSERT/UPDATE RETURNING
+// 后在应用层补 project_id 再去查 project_name。
+const draftRetCols = "id, user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_commit_sha, published_version, published_at, created_at, updated_at, project_id"
 
 func scanDraft(sc func(...any) error) (*Draft, error) {
 	d := &Draft{}
 	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
-		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt)
+		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID, &d.ProjectName)
 	if err != nil {
 		return nil, err
 	}
@@ -220,9 +224,27 @@ func scanDraft(sc func(...any) error) (*Draft, error) {
 	return d, nil
 }
 
+// scanDraftRet 扫描仅 blog_drafts 表自身列（无 JOIN），再补 projectName。
+func (r *Repository) scanDraftRet(sc func(...any) error) (*Draft, error) {
+	d := &Draft{}
+	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
+		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if d.Status == StatusPublished && (d.PublishedVersion == nil || d.Version > *d.PublishedVersion) {
+		d.HasUnpublishedChanges = true
+	}
+	// 补 projectName
+	if d.ProjectID != nil {
+		_ = r.db.QueryRow(`SELECT name FROM blog_projects WHERE id = $1`, *d.ProjectID).Scan(&d.ProjectName)
+	}
+	return d, nil
+}
+
 func (r *Repository) ListDrafts(userID int64) ([]Draft, error) {
 	rows, err := r.db.Query(
-		`SELECT `+draftCols+` FROM blog_drafts WHERE user_id = $1 ORDER BY updated_at DESC`,
+		`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id WHERE d.user_id = $1 ORDER BY d.updated_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -243,7 +265,7 @@ func (r *Repository) ListDrafts(userID int64) ([]Draft, error) {
 func (r *Repository) GetDraft(userID, id int64) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+draftCols+` FROM blog_drafts WHERE id = $1 AND user_id = $2`,
+			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id WHERE d.id = $1 AND d.user_id = $2`,
 			id, userID,
 		).Scan(dst...)
 	})
@@ -260,7 +282,7 @@ func (r *Repository) GetDraft(userID, id int64) (*Draft, error) {
 func (r *Repository) GetDraftByID(id int64) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+draftCols+` FROM blog_drafts WHERE id = $1`,
+			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id WHERE d.id = $1`,
 			id,
 		).Scan(dst...)
 	})
@@ -285,12 +307,12 @@ func (r *Repository) CreateDraft(userID int64, d Draft) (*Draft, error) {
 	if vis == "" {
 		vis = VisibilityPrivate
 	}
-	out, err := scanDraft(func(dst ...any) error {
+	out, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
-			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status, visibility)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)
-			 RETURNING `+draftCols,
-			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown, vis,
+			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status, visibility, project_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9)
+			 RETURNING `+draftRetCols,
+			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown, vis, d.ProjectID,
 		).Scan(dst...)
 	})
 	if err != nil {
@@ -344,13 +366,16 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 	if req.Visibility != nil && (*req.Visibility == VisibilityPublic || *req.Visibility == VisibilityPrivate) {
 		add("visibility", "", *req.Visibility)
 	}
+	if req.ProjectID != nil {
+		add("project_id", "", *req.ProjectID)
+	}
 	args = append(args, id, userID, baseVersion) // $n, $n+1, $n+2
 
-	d, err := scanDraft(func(dst ...any) error {
+	d, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
 			fmt.Sprintf(
 				`UPDATE blog_drafts SET %s WHERE id = $%d AND user_id = $%d AND version = $%d
-				 RETURNING `+draftCols,
+				 RETURNING `+draftRetCols,
 				strings.Join(sets, ", "), n, n+1, n+2,
 			),
 			args...,
@@ -444,13 +469,13 @@ func (r *Repository) SetDraftStatus(id int64, status string) error {
 // PublishDraft 同步发布：status=published、published_version=version、
 // published_at=COALESCE(已有, NOW())、visibility 按入参更新。返回最新草稿。
 func (r *Repository) PublishDraft(id int64, visibility string) (*Draft, error) {
-	d, err := scanDraft(func(dst ...any) error {
+	d, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
 			`UPDATE blog_drafts
 			 SET status = $1, visibility = $2, published_version = version,
 			     published_at = COALESCE(published_at, NOW()), updated_at = NOW()
 			 WHERE id = $3
-			 RETURNING `+draftCols,
+			 RETURNING `+draftRetCols,
 			StatusPublished, visibility, id,
 		).Scan(dst...)
 	})
@@ -465,9 +490,9 @@ func (r *Repository) PublishDraft(id int64, visibility string) (*Draft, error) {
 
 // UnpublishDraft 撤回：status=draft（保留 visibility、published_at、published_version）。
 func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
-	d, err := scanDraft(func(dst ...any) error {
+	d, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
-			`UPDATE blog_drafts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING `+draftCols,
+			`UPDATE blog_drafts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING `+draftRetCols,
 			StatusDraft, id,
 		).Scan(dst...)
 	})
@@ -482,13 +507,13 @@ func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
 
 // ==================== 公开 / 私有读 ====================
 
-// summaryCols 是列表场景的精简列：不含 markdown 正文。
-const summaryCols = "id, slug, title, description, tags, cover, status, visibility, version, published_at, updated_at"
+// summaryCols 是列表场景的精简列：不含 markdown 正文。（含 project 信息）
+const summaryCols = "d.id, d.slug, d.title, d.description, d.tags, d.cover, d.status, d.visibility, d.version, d.published_at, d.updated_at, d.project_id, p.name AS project_name"
 
 func scanDraftSummary(sc func(...any) error) (*DraftSummary, error) {
 	s := &DraftSummary{}
 	err := sc(&s.ID, &s.Slug, &s.Title, &s.Description, pq.Array(&s.Tags),
-		&s.Cover, &s.Status, &s.Visibility, &s.Version, &s.PublishedAt, &s.UpdatedAt)
+		&s.Cover, &s.Status, &s.Visibility, &s.Version, &s.PublishedAt, &s.UpdatedAt, &s.ProjectID, &s.ProjectName)
 	if err != nil {
 		return nil, err
 	}
@@ -498,12 +523,18 @@ func scanDraftSummary(sc func(...any) error) (*DraftSummary, error) {
 	return s, nil
 }
 
-// ListPublishedPublic 列出所有公开已发布文档（任何人都可读），按更新时间倒序。
-func (r *Repository) ListPublishedPublic() ([]DraftSummary, error) {
+// ListPublishedPublic 列出所有公开已发布文档，按更新时间倒序。可选 projectID 过滤。
+func (r *Repository) ListPublishedPublic(projectID *int64) ([]DraftSummary, error) {
+	where := `d.visibility = $1 AND d.status = $2`
+	args := []any{VisibilityPublic, StatusPublished}
+	if projectID != nil {
+		where += ` AND d.project_id = $3`
+		args = append(args, *projectID)
+	}
 	rows, err := r.db.Query(
-		`SELECT `+summaryCols+` FROM blog_drafts
-		 WHERE visibility = $1 AND status = $2 ORDER BY COALESCE(updated_at, published_at) DESC`,
-		VisibilityPublic, StatusPublished,
+		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+		 WHERE `+where+` ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -524,8 +555,8 @@ func (r *Repository) ListPublishedPublic() ([]DraftSummary, error) {
 func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+draftCols+` FROM blog_drafts
-			 WHERE slug = $1 AND visibility = $2 AND status = $3`,
+			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+			 WHERE d.slug = $1 AND d.visibility = $2 AND d.status = $3`,
 			slug, VisibilityPublic, StatusPublished,
 		).Scan(dst...)
 	})
@@ -538,16 +569,21 @@ func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
 	return d, nil
 }
 
-// SearchPublic 全文搜索公开已发布文档（首版 ILIKE）。返回 (结果, 总数)。
-func (r *Repository) SearchPublic(q string, limit, offset int) ([]DraftSummary, int, error) {
+// SearchPublic 全文搜索公开已发布文档（首版 ILIKE）。返回 (结果, 总数)。可选 projectID 过滤。
+func (r *Repository) SearchPublic(q string, projectID *int64, limit, offset int) ([]DraftSummary, int, error) {
 	pattern := "%" + q + "%"
+	where := `d.visibility = $1 AND d.status = $2 AND (d.title ILIKE $3 OR d.description ILIKE $3 OR d.markdown ILIKE $3)`
+	args := []any{VisibilityPublic, StatusPublished, pattern}
+	if projectID != nil {
+		where += fmt.Sprintf(` AND d.project_id = $%d`, len(args)+1)
+		args = append(args, *projectID)
+	}
+	args = append(args, limit, offset)
 	rows, err := r.db.Query(
-		`SELECT `+summaryCols+` FROM blog_drafts
-		 WHERE visibility = $1 AND status = $2
-		   AND (title ILIKE $3 OR description ILIKE $3 OR markdown ILIKE $3)
-		 ORDER BY COALESCE(updated_at, published_at) DESC
-		 LIMIT $4 OFFSET $5`,
-		VisibilityPublic, StatusPublished, pattern, limit, offset,
+		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+		 WHERE `+where+` ORDER BY COALESCE(d.updated_at, d.published_at) DESC
+		 LIMIT $`+fmt.Sprintf("%d", len(args)-1)+` OFFSET $`+fmt.Sprintf("%d", len(args)),
+		args...,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -565,11 +601,15 @@ func (r *Repository) SearchPublic(q string, limit, offset int) ([]DraftSummary, 
 		return nil, 0, err
 	}
 	var total int
+	countWhere := `d.visibility = $1 AND d.status = $2 AND (d.title ILIKE $3 OR d.description ILIKE $3 OR d.markdown ILIKE $3)`
+	countArgs := []any{VisibilityPublic, StatusPublished, pattern}
+	if projectID != nil {
+		countWhere += fmt.Sprintf(` AND d.project_id = $%d`, len(countArgs)+1)
+		countArgs = append(countArgs, *projectID)
+	}
 	if err := r.db.QueryRow(
-		`SELECT COUNT(*) FROM blog_drafts
-		 WHERE visibility = $1 AND status = $2
-		   AND (title ILIKE $3 OR description ILIKE $3 OR markdown ILIKE $3)`,
-		VisibilityPublic, StatusPublished, pattern,
+		`SELECT COUNT(*) FROM blog_drafts d WHERE `+countWhere,
+		countArgs...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -579,9 +619,9 @@ func (r *Repository) SearchPublic(q string, limit, offset int) ([]DraftSummary, 
 // ListPublishedPrivate 列出本人私有已发布文档。
 func (r *Repository) ListPublishedPrivate(userID int64) ([]DraftSummary, error) {
 	rows, err := r.db.Query(
-		`SELECT `+summaryCols+` FROM blog_drafts
-		 WHERE user_id = $1 AND visibility = $2 AND status = $3
-		 ORDER BY COALESCE(updated_at, published_at) DESC`,
+		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+		 WHERE d.user_id = $1 AND d.visibility = $2 AND d.status = $3
+		 ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
 		userID, VisibilityPrivate, StatusPublished,
 	)
 	if err != nil {
@@ -603,8 +643,8 @@ func (r *Repository) ListPublishedPrivate(userID int64) ([]DraftSummary, error) 
 func (r *Repository) GetPublishedPrivateBySlug(userID int64, slug string) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
-			`SELECT `+draftCols+` FROM blog_drafts
-			 WHERE user_id = $1 AND slug = $2 AND visibility = $3 AND status = $4`,
+			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+			 WHERE d.user_id = $1 AND d.slug = $2 AND d.visibility = $3 AND d.status = $4`,
 			userID, slug, VisibilityPrivate, StatusPublished,
 		).Scan(dst...)
 	})
@@ -648,7 +688,7 @@ func (r *Repository) ImportDraft(userID int64, d Draft, publishedAt *time.Time, 
 		}
 		pubVersion = &v
 	}
-	out, err := scanDraft(func(dst ...any) error {
+	out, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
 			`INSERT INTO blog_drafts (user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_version, published_at)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12, NOW()))
@@ -664,7 +704,7 @@ func (r *Repository) ImportDraft(userID int64, d Draft, publishedAt *time.Time, 
 			   published_version = EXCLUDED.published_version,
 			   published_at = COALESCE(blog_drafts.published_at, EXCLUDED.published_at),
 			   updated_at = NOW()
-			 RETURNING `+draftCols,
+			 RETURNING `+draftRetCols,
 			userID, d.Slug, d.Title, d.Description, pq.Array(tags), d.Cover, d.Markdown,
 			status, VisibilityPublic, d.Version, pubVersion, publishedAt,
 		).Scan(dst...)
@@ -732,13 +772,13 @@ func (r *Repository) RestoreVersion(userID, draftID, version int64) (*Draft, err
 	defer tx.Rollback() //nolint:errcheck
 	// 恢复只是把历史内容写回草稿为新版本；不改变 status（线上文章仍存在，
 	// 下次发布才更新线上）。若草稿当前为 published，恢复后内容与线上不一致是预期。
-	d, err := scanDraft(func(dst ...any) error {
+	d, err := r.scanDraftRet(func(dst ...any) error {
 		return tx.QueryRow(
 			`UPDATE blog_drafts
 			   SET title = $1, description = $2, tags = $3, cover = $4, markdown = $5,
 			       version = version + 1, updated_at = NOW()
 			 WHERE id = $6 AND user_id = $7
-			 RETURNING `+draftCols,
+			 RETURNING `+draftRetCols,
 			v.Title, v.Description, pq.Array(v.Tags), v.Cover, v.Markdown, draftID, userID,
 		).Scan(dst...)
 	})
@@ -815,6 +855,184 @@ func (r *Repository) GetAsset(id int64) (*Asset, error) {
 		return nil, err
 	}
 	return a, nil
+}
+
+// ==================== Project ====================
+
+const projectCols = "id, user_id, name, intro, sort_order, created_at, updated_at"
+
+func scanProject(sc func(...any) error) (*Project, error) {
+	p := &Project{}
+	err := sc(&p.ID, &p.UserID, &p.Name, &p.Intro, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (r *Repository) ListProjects(userID int64) ([]Project, error) {
+	rows, err := r.db.Query(
+		`SELECT `+projectCols+` FROM blog_projects WHERE user_id = $1 ORDER BY sort_order ASC, id ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Project{}
+	for rows.Next() {
+		p, err := scanProject(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+// ListPublicProjectsWithCount 列出所有 project 及公开已发布文章数（无需鉴权）。
+func (r *Repository) ListPublicProjectsWithCount() ([]ProjectPublic, error) {
+	rows, err := r.db.Query(
+		`SELECT p.id, p.name, p.intro, COUNT(d.id)
+		 FROM blog_projects p
+		 LEFT JOIN blog_drafts d ON d.project_id = p.id AND d.visibility = 'public' AND d.status = 'published'
+		 GROUP BY p.id, p.name, p.intro, p.sort_order
+		 ORDER BY p.sort_order ASC, p.id ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProjectPublic{}
+	for rows.Next() {
+		var pp ProjectPublic
+		if err := rows.Scan(&pp.ID, &pp.Name, &pp.Intro, &pp.PostCount); err != nil {
+			return nil, err
+		}
+		out = append(out, pp)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CreateProject(userID int64, p Project) (*Project, error) {
+	out, err := scanProject(func(dst ...any) error {
+		return r.db.QueryRow(
+			`INSERT INTO blog_projects (user_id, name, intro)
+			 VALUES ($1,$2,$3)
+			 RETURNING `+projectCols,
+			userID, p.Name, p.Intro,
+		).Scan(dst...)
+	})
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return nil, ErrConflict
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) GetProject(userID, id int64) (*Project, error) {
+	p, err := scanProject(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+projectCols+` FROM blog_projects WHERE id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrProjectNotFound
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
+func (r *Repository) UpdateProject(userID, id int64, req UpdateProjectRequest) (*Project, error) {
+	sets := []string{"updated_at = NOW()"}
+	args := []any{}
+	n := 1
+	add := func(col, expr string, val any) {
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+		args = append(args, val)
+		n++
+	}
+	if req.Name != nil {
+		add("name", "", *req.Name)
+	}
+	if req.Intro != nil {
+		add("intro", "", *req.Intro)
+	}
+	if req.SortOrder != nil {
+		add("sort_order", "", *req.SortOrder)
+	}
+	args = append(args, id, userID)
+	p, err := scanProject(func(dst ...any) error {
+		return r.db.QueryRow(
+			fmt.Sprintf(
+				`UPDATE blog_projects SET %s WHERE id = $%d AND user_id = $%d RETURNING `+projectCols,
+				strings.Join(sets, ", "), n, n+1,
+			),
+			args...,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrProjectNotFound
+		}
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return nil, ErrConflict
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
+func (r *Repository) DeleteProject(userID, id int64) error {
+	res, err := r.db.Exec(`DELETE FROM blog_projects WHERE id = $1 AND user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrProjectNotFound
+	}
+	return nil
+}
+
+func (r *Repository) ReorderProjects(userID int64, items []ReorderItem) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, item := range items {
+		if _, err := tx.Exec(
+			`UPDATE blog_projects SET sort_order = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+			item.SortOrder, item.ID, userID,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SetDraftProject 切换文章归属（不含版本变更，不触发"未发布修改"）。
+func (r *Repository) SetDraftProject(userID, id int64, projectID *int64) error {
+	res, err := r.db.Exec(
+		`UPDATE blog_drafts SET project_id = $1 WHERE id = $2 AND user_id = $3`,
+		projectID, id, userID,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrDraftNotFound
+	}
+	return nil
 }
 
 // ==================== AuditLog ====================

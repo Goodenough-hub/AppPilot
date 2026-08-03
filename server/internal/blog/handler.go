@@ -78,7 +78,19 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 
 	rg.POST("/drafts/:id/publish", blogAuth, h.publish)
 	rg.POST("/drafts/:id/unpublish", blogAuth, h.unpublish)
-}
+
+		// Project 管理（需登录）
+		rg.POST("/projects", blogAuth, h.createProject)
+		rg.PATCH("/projects/:id", blogAuth, h.updateProject)
+		rg.DELETE("/projects/:id", blogAuth, h.deleteProject)
+		rg.POST("/projects/reorder", blogAuth, h.reorderProjects)
+		rg.PUT("/drafts/:id/project", blogAuth, h.setDraftProject)
+
+		// 公开 project 读（无需登录）
+		pubProjects := rg.Group("/projects")
+		pubProjects.GET("", h.listPublicProjects)
+		pubProjects.GET("/:id", h.getPublicProject)
+	}
 
 // ==================== Auth ====================
 
@@ -178,8 +190,10 @@ func (h *Handler) me(c *gin.Context) {
 // ==================== 公开 / 私有读 ====================
 
 // listPublicPosts 列出所有公开已发布文档（无正文，供首页/列表/RSS/sitemap）。
+// 可选 query: ?projectId= 过滤指定 project 下的文章。
 func (h *Handler) listPublicPosts(c *gin.Context) {
-	posts, err := h.repo.ListPublishedPublic()
+	projectID := parseOptionalID(c, "projectId")
+	posts, err := h.repo.ListPublishedPublic(projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -206,7 +220,7 @@ func (h *Handler) getPublicPost(c *gin.Context) {
 	c.JSON(http.StatusOK, d)
 }
 
-// searchPublic 全文搜索公开已发布文档。GET /posts/search?q=&page=&pageSize=
+// searchPublic 全文搜索公开已发布文档。GET /posts/search?q=&page=&pageSize=&projectId=
 func (h *Handler) searchPublic(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
@@ -221,7 +235,8 @@ func (h *Handler) searchPublic(c *gin.Context) {
 	if pageSize < 1 || pageSize > 50 {
 		pageSize = 10
 	}
-	items, total, err := h.repo.SearchPublic(q, pageSize, (page-1)*pageSize)
+	projectID := parseOptionalID(c, "projectId")
+	items, total, err := h.repo.SearchPublic(q, projectID, pageSize, (page-1)*pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -633,6 +648,144 @@ func (h *Handler) unpublish(c *gin.Context) {
 	})
 }
 
+// ==================== Projects ====================
+
+// listPublicProjects 列出所有 project（含公开文章数），无需鉴权。Studio 侧栏也复用此接口。
+func (h *Handler) listPublicProjects(c *gin.Context) {
+	projects, err := h.repo.ListPublicProjectsWithCount()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, projects)
+}
+
+// getPublicProject 取单个 project 元数据，无需鉴权。
+func (h *Handler) getPublicProject(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	p, err := h.repo.GetProject(blogUserID(c), id)
+	if err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) createProject(c *gin.Context) {
+	var req CreateProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	p, err := h.repo.CreateProject(blogUserID(c), Project{Name: req.Name, Intro: req.Intro})
+	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": "项目名称已存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, p)
+}
+
+func (h *Handler) updateProject(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req UpdateProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	p, err := h.repo.UpdateProject(blogUserID(c), id, req)
+	if err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			return
+		}
+		if errors.Is(err, ErrConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": "项目名称已存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) deleteProject(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.repo.DeleteProject(blogUserID(c), id); err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) reorderProjects(c *gin.Context) {
+	var req ReorderProjectsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.repo.ReorderProjects(blogUserID(c), req.Items); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// setDraftProject 切换文章归属（拖拽/下拉用）。不 bump version。
+func (h *Handler) setDraftProject(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req SetDraftProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.repo.SetDraftProject(blogUserID(c), id, req.ProjectID); err != nil {
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // ==================== Helpers ====================
 
 func int64Ptr(v int64) *int64 { return &v }
+
+// parseOptionalID 从 query 参数里解析可选 int64；空字符串返回 nil。
+func parseOptionalID(c *gin.Context, key string) *int64 {
+	s := c.Query(key)
+	if s == "" {
+		return nil
+	}
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
+}

@@ -51,6 +51,8 @@ type Draft struct {
 	PublishedCommitSha    *string    `json:"publishedCommitSha,omitempty"`
 	PublishedVersion      *int64     `json:"publishedVersion,omitempty"`
 	HasUnpublishedChanges bool       `json:"hasUnpublishedChanges"`
+	ProjectID              *int64     `json:"projectId,omitempty"`
+	ProjectName            *string    `json:"projectName,omitempty"`
 	PublishedAt           *time.Time `json:"publishedAt,omitempty"`
 	CreatedAt             time.Time  `json:"createdAt"`
 	UpdatedAt             time.Time  `json:"updatedAt"`
@@ -88,6 +90,25 @@ type AuditLog struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// Project 是文章的归属分类，一篇文章只属于一个 project（可空）。
+type Project struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"userId"`
+	Name      string    `json:"name"`
+	Intro     string    `json:"intro"`
+	SortOrder int       `json:"sortOrder"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ProjectPublic 是公开读场景的 project 简视图（含公开文章数）。
+type ProjectPublic struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Intro     string `json:"intro"`
+	PostCount int    `json:"postCount"`
+}
+
 // ---- 请求体 ----
 
 type LoginRequest struct {
@@ -103,6 +124,7 @@ type CreateDraftRequest struct {
 	Cover       *string  `json:"cover"`
 	Markdown    string   `json:"markdown"`
 	Visibility  *string  `json:"visibility"`
+	ProjectID   *int64   `json:"projectId"`
 }
 
 // UpdateDraftRequest 必须提交 BaseVersion 做乐观锁；冲突返回 409。
@@ -114,12 +136,39 @@ type UpdateDraftRequest struct {
 	Cover       *string  `json:"cover"`
 	Markdown    *string  `json:"markdown"`
 	Visibility  *string  `json:"visibility"`
+	ProjectID   *int64   `json:"projectId"`
 	BaseVersion int64    `json:"baseVersion" binding:"required"`
 }
 
 // PublishRequest 可选携带 visibility：发布同时调整可见性。缺省保持原 visibility。
 type PublishRequest struct {
 	Visibility *string `json:"visibility"`
+}
+
+// ---- Project 请求体 ----
+
+type CreateProjectRequest struct {
+	Name  string `json:"name" binding:"required"`
+	Intro string `json:"intro"`
+}
+
+type UpdateProjectRequest struct {
+	Name      *string `json:"name"`
+	Intro     *string `json:"intro"`
+	SortOrder *int    `json:"sortOrder"`
+}
+
+type ReorderItem struct {
+	ID        int64 `json:"id"`
+	SortOrder int   `json:"sortOrder"`
+}
+
+type ReorderProjectsRequest struct {
+	Items []ReorderItem `json:"items" binding:"required"`
+}
+
+type SetDraftProjectRequest struct {
+	ProjectID *int64 `json:"projectId"`
 }
 
 // DraftSummary 是列表场景的精简视图：不含 markdown 正文。
@@ -133,6 +182,8 @@ type DraftSummary struct {
 	Status       string     `json:"status"`
 	Visibility   string     `json:"visibility"`
 	Version      int64      `json:"version"`
+	ProjectID    *int64     `json:"projectId,omitempty"`
+	ProjectName  *string    `json:"projectName,omitempty"`
 	PublishedAt  *time.Time `json:"publishedAt,omitempty"`
 	UpdatedAt    time.Time  `json:"updatedAt"`
 }
