@@ -91,12 +91,13 @@ func (r *Repository) TopPages(app string, start, end time.Time, limit int) ([]To
 // RealtimeUsers 返回近 window 时间内有活动的独立用户数。
 func (r *Repository) RealtimeUsers(app string, window time.Duration) (int, error) {
 	var count int
+	since := time.Now().Add(-window)
 	err := r.db.QueryRow(
 		`SELECT COUNT(DISTINCT COALESCE(session_id, ip))
 		   FROM analytics_events
 		  WHERE app = $1 AND event_type = 'pageview'
-		    AND created_at >= NOW() - $2::interval`,
-		app, window.String(),
+		    AND created_at >= $2`,
+		app, since,
 	).Scan(&count)
 	return count, err
 }

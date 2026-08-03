@@ -50,15 +50,17 @@ export default function AnalyticsPage() {
     setError('')
     try {
       const end = new Date().toISOString()
-      const start = new Date(Date.now() - days * 86400000).toISOString()
-      const [pv, top, rt] = await Promise.all([
+      const start = days === 0
+        ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+        : new Date(Date.now() - days * 86400000).toISOString()
+      const [pv, top] = await Promise.all([
         getPV({ app, start, end }),
         getTopPages({ app, start, end, limit: 20 }),
-        getRealtime(app),
       ])
       setPvData(pv)
       setTopPages(top)
-      setOnline(rt)
+      // 实时在线独立加载，失败不影响主数据
+      getRealtime(app).then(setOnline).catch(() => {})
     } catch (err: any) {
       setError(err.response?.data?.error || '加载失败')
     } finally {
