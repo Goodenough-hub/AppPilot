@@ -45,6 +45,9 @@ func NewRegistry(db *sql.DB) *Registry {
 	r.register(&fluxblogSummarySource{db: db})
 	r.register(&fluxblogPostTrendSource{db: db})
 	r.register(&fluxblogAuthorActivitySource{db: db})
+	r.register(&finflowAccountBalanceSource{db: db})
+	r.register(&analyticsPVSource{db: db})
+	r.register(&analyticsTopPagesSource{db: db})
 	return r
 }
 
@@ -296,6 +299,117 @@ func (s *fluxblogAuthorActivitySource) Query(ctx context.Context, _ map[string]a
 			return nil, err
 		}
 		out = append(out, ChartData{Label: username, Value: float64(cnt)})
+	}
+	return out, rows.Err()
+}
+
+// ---- finflow:account_balance ----
+
+type finflowAccountBalanceSource struct {
+	db *sql.DB
+}
+
+func (s *finflowAccountBalanceSource) Key() string         { return "finflow:account_balance" }
+func (s *finflowAccountBalanceSource) Description() string {
+	return "账户余额分布"
+}
+
+func (s *finflowAccountBalanceSource) Query(ctx context.Context, _ map[string]any) ([]ChartData, error) {
+	const q = `
+		SELECT a.name, COALESCE(SUM(
+			CASE t.type
+				WHEN 'income' THEN t.amount
+				WHEN 'expense' THEN -t.amount
+				ELSE 0
+			END
+		), 0) AS balance
+		FROM accounts a
+		LEFT JOIN transactions t ON t.account_id = a.id
+		GROUP BY a.name
+		ORDER BY balance DESC`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChartData{}
+	for rows.Next() {
+		var name string
+		var balance float64
+		if err := rows.Scan(&name, &balance); err != nil {
+			return nil, err
+		}
+		out = append(out, ChartData{Label: name, Value: balance})
+	}
+	return out, rows.Err()
+}
+
+// ---- analytics:pv ----
+
+type analyticsPVSource struct {
+	db *sql.DB
+}
+
+func (s *analyticsPVSource) Key() string         { return "analytics:pv" }
+func (s *analyticsPVSource) Description() string {
+	return "页面访问量（PV/UV 日聚合）"
+}
+
+func (s *analyticsPVSource) Query(ctx context.Context, _ map[string]any) ([]ChartData, error) {
+	const q = `
+		SELECT to_char(created_at, 'MM-DD') AS date,
+		       COUNT(*) AS pv,
+		       COUNT(DISTINCT COALESCE(session_id, ip)) AS uv
+		FROM analytics_events
+		WHERE event_type = 'pageview'
+		GROUP BY date ORDER BY date`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChartData{}
+	for rows.Next() {
+		var date string
+		var pv, uv int64
+		if err := rows.Scan(&date, &pv, &uv); err != nil {
+			return nil, err
+		}
+		out = append(out, ChartData{Label: date, Value: float64(pv), Extra: map[string]any{"uv": uv}})
+	}
+	return out, rows.Err()
+}
+
+// ---- analytics:top_pages ----
+
+type analyticsTopPagesSource struct {
+	db *sql.DB
+}
+
+func (s *analyticsTopPagesSource) Key() string         { return "analytics:top_pages" }
+func (s *analyticsTopPagesSource) Description() string {
+	return "热门页面排行（Top 20）"
+}
+
+func (s *analyticsTopPagesSource) Query(ctx context.Context, _ map[string]any) ([]ChartData, error) {
+	const q = `
+		SELECT path, COUNT(*) AS pv
+		FROM analytics_events
+		WHERE event_type = 'pageview'
+		GROUP BY path ORDER BY pv DESC LIMIT 20`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChartData{}
+	for rows.Next() {
+		var path string
+		var pv int64
+		if err := rows.Scan(&path, &pv); err != nil {
+			return nil, err
+		}
+		out = append(out, ChartData{Label: path, Value: float64(pv)})
 	}
 	return out, rows.Err()
 }
