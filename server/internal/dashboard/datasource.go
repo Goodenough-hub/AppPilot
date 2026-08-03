@@ -355,15 +355,19 @@ func (s *analyticsPVSource) Description() string {
 	return "页面访问量（PV/UV 日聚合）"
 }
 
-func (s *analyticsPVSource) Query(ctx context.Context, _ map[string]any) ([]ChartData, error) {
+func (s *analyticsPVSource) Query(ctx context.Context, params map[string]any) ([]ChartData, error) {
+	app := stringParam(params, "app")
+	days := intParam(params, "days", 30)
 	const q = `
-		SELECT to_char(created_at, 'MM-DD') AS date,
+		SELECT to_char(created_at, 'YYYY-MM-DD') AS date,
 		       COUNT(*) AS pv,
 		       COUNT(DISTINCT COALESCE(session_id, ip)) AS uv
 		FROM analytics_events
 		WHERE event_type = 'pageview'
+		  AND created_at >= CURRENT_DATE - $1::int
+		  AND ($2 = '' OR app = $2)
 		GROUP BY date ORDER BY date`
-	rows, err := s.db.QueryContext(ctx, q)
+	rows, err := s.db.QueryContext(ctx, q, days, app)
 	if err != nil {
 		return nil, err
 	}
@@ -391,13 +395,17 @@ func (s *analyticsTopPagesSource) Description() string {
 	return "热门页面排行（Top 20）"
 }
 
-func (s *analyticsTopPagesSource) Query(ctx context.Context, _ map[string]any) ([]ChartData, error) {
+func (s *analyticsTopPagesSource) Query(ctx context.Context, params map[string]any) ([]ChartData, error) {
+	app := stringParam(params, "app")
+	days := intParam(params, "days", 30)
 	const q = `
 		SELECT path, COUNT(*) AS pv
 		FROM analytics_events
 		WHERE event_type = 'pageview'
+		  AND created_at >= CURRENT_DATE - $1::int
+		  AND ($2 = '' OR app = $2)
 		GROUP BY path ORDER BY pv DESC LIMIT 20`
-	rows, err := s.db.QueryContext(ctx, q)
+	rows, err := s.db.QueryContext(ctx, q, days, app)
 	if err != nil {
 		return nil, err
 	}
@@ -412,4 +420,27 @@ func (s *analyticsTopPagesSource) Query(ctx context.Context, _ map[string]any) (
 		out = append(out, ChartData{Label: path, Value: float64(pv)})
 	}
 	return out, rows.Err()
+}
+
+// ---- param helpers ----
+
+func stringParam(params map[string]any, key string) string {
+	if v, ok := params[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func intParam(params map[string]any, key string, defaultVal int) int {
+	if v, ok := params[key]; ok {
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		}
+	}
+	return defaultVal
 }

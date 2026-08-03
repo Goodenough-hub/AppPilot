@@ -40,13 +40,22 @@ func (h *Handler) RegisterAdmin(rg *gin.RouterGroup, middlewares ...gin.HandlerF
 	}
 }
 
+// knownApps 是允许上报埋点的应用白名单，与 admin.listApps 的聚合逻辑一致。
+var knownApps = map[string]bool{"finflow": true, "fluxblog": true}
+
 func (h *Handler) track(c *gin.Context) {
 	var req TrackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// 尝试从 JWT 获取 userID（若已登录），匿名亦可
+	// 仅允许已知应用上报，防止垃圾数据写入
+	if !knownApps[req.App] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown app"})
+		return
+	}
+	// 尝试从 JWT 获取 userID（若已登录），匿名亦可；
+	// 公开端点可能没有 auth 中间件，但若中间件已解析则使用。
 	var userID *int64
 	if uid, exists := c.Get("userID"); exists {
 		if id, ok := uid.(int64); ok {
@@ -60,7 +69,7 @@ func (h *Handler) track(c *gin.Context) {
 		referrer = c.GetHeader("Referer")
 	}
 	if err := h.repo.InsertEvent(req.App, req.EventType, req.Path, req.Title, referrer, ua, ip, req.SessionID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 	c.Status(http.StatusNoContent)

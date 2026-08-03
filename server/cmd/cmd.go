@@ -93,7 +93,7 @@ func serve(cfg *config.Config) error {
 	// 埋点：公开 track 端点 + admin 鉴权的分析查询
 	analyticsRepo := analytics.NewRepository(pg)
 	analyticsHandler := analytics.NewHandler(analyticsRepo)
-	analyticsHandler.RegisterPublic(v1.Group("/analytics"))
+	analyticsHandler.RegisterPublic(v1.Group("/analytics", middleware.AuthOptional(cfg.JWTSecret)))
 	analyticsHandler.RegisterAdmin(
 		v1.Group("/admin"),
 		middleware.AuthRequired(cfg.JWTSecret),

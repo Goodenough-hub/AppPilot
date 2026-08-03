@@ -34,6 +34,33 @@ func AuthRequired(jwtSecret string) gin.HandlerFunc {
 	}
 }
 
+// AuthOptional 解析 JWT（若存在），不强制要求。
+// 解析成功时设置 userID/role/appScope/username，失败时静默继续（不 401）。
+func AuthOptional(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if header == "" {
+			c.Next()
+			return
+		}
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			c.Next()
+			return
+		}
+		claims, err := auth.ParseToken(parts[1], jwtSecret)
+		if err != nil {
+			c.Next()
+			return
+		}
+		c.Set("userID", claims.UserID)
+		c.Set("role", claims.Role)
+		c.Set("appScope", claims.AppScope)
+		c.Set("username", claims.Username)
+		c.Next()
+	}
+}
+
 func AdminRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, _ := c.Get("role")
