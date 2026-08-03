@@ -542,3 +542,31 @@ a:hover {
 }
 .modal-card { padding: 28px; max-width: 420px; width: calc(100% - 48px); }
 .modal-card .admin-form-row { flex-direction: column; align-items: stretch; }
+
+/* react-grid-layout 暗色主题覆盖 */
+.react-grid-layout {
+  position: relative;
+}
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+.react-grid-item.cssTransforms {
+  transition-property: transform, width, height;
+}
+.react-grid-item > .react-resizable-handle {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.react-grid-placeholder {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border: 2px dashed var(--primary) !important;
+  border-radius: var(--radius-lg);
+}
