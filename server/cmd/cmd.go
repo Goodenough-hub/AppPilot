@@ -7,6 +7,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"apppilot-server/internal/admin"
+	"apppilot-server/internal/analytics"
 	"apppilot-server/internal/auth"
 	"apppilot-server/internal/blog"
 	"apppilot-server/internal/db"
@@ -87,6 +88,16 @@ func serve(cfg *config.Config) error {
 	blogRepo := blog.NewRepository(pg)
 	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, cfg.BlogAssetDir)
 	blogHandler.Register(v1.Group("/blog"))
+
+	// 埋点：公开 track 端点 + admin 鉴权的分析查询
+	analyticsRepo := analytics.NewRepository(pg)
+	analyticsHandler := analytics.NewHandler(analyticsRepo)
+	analyticsHandler.RegisterPublic(v1.Group("/analytics"))
+	analyticsHandler.RegisterAdmin(
+		v1.Group("/admin"),
+		middleware.AuthRequired(cfg.JWTSecret),
+		middleware.AdminRequired(),
+	)
 
 	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
 	adminHandler.Register(
