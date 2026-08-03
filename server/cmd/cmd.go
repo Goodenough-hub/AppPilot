@@ -10,6 +10,7 @@ import (
 	"apppilot-server/internal/analytics"
 	"apppilot-server/internal/auth"
 	"apppilot-server/internal/blog"
+	"apppilot-server/internal/dashboard"
 	"apppilot-server/internal/db"
 	"apppilot-server/internal/finflow"
 	"apppilot-server/internal/middleware"
@@ -101,6 +102,16 @@ func serve(cfg *config.Config) error {
 
 	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
 	adminHandler.Register(
+		v1.Group("/admin"),
+		middleware.AuthRequired(cfg.JWTSecret),
+		middleware.AdminRequired(),
+	)
+
+	// 仪表盘：CRUD + 数据源查询，admin 鉴权。复用与 admin 相同的中间件链。
+	dashboardRepo := dashboard.NewRepository(pg)
+	dsRegistry := dashboard.NewRegistry(pg)
+	dashboardHandler := dashboard.NewHandler(dashboardRepo, dsRegistry)
+	dashboardHandler.RegisterAdmin(
 		v1.Group("/admin"),
 		middleware.AuthRequired(cfg.JWTSecret),
 		middleware.AdminRequired(),
