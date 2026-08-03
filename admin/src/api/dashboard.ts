@@ -93,6 +93,21 @@ export async function updateWidget(
   return data
 }
 
+/**
+ * 更新 Widget 的网格位置（仅 gridX/gridY/gridW/gridH）。
+ * 使用 PATCH 语义，不会覆盖 type/title/dataSource/config。
+ */
+export async function updateWidgetLayout(
+  dashboardId: string,
+  widgetId: string,
+  req: { gridX?: number; gridY?: number; gridW?: number; gridH?: number }
+): Promise<void> {
+  await apiClient.patch(
+    `/admin/dashboards/${dashboardId}/widgets/${widgetId}/layout`,
+    req
+  )
+}
+
 /** 删除 widget */
 export async function deleteWidget(
   dashboardId: string,

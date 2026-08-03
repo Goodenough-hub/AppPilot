@@ -11,7 +11,7 @@ import 'react-grid-layout/css/styles.css'
 import {
   listDashboards,
   getDashboard,
-  updateWidget,
+  updateWidgetLayout,
   createWidget,
   deleteWidget,
   type Dashboard,
@@ -116,7 +116,7 @@ export default function DashboardDetailPage() {
       })
     )
     for (const { widget, item } of changes) {
-      updateWidget(dashboard.id, widget.id, {
+      updateWidgetLayout(dashboard.id, widget.id, {
         gridX: item.x,
         gridY: item.y,
         gridW: item.w,

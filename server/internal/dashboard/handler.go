@@ -32,6 +32,7 @@ func (h *Handler) RegisterAdmin(rg *gin.RouterGroup, middlewares ...gin.HandlerF
 		g.PUT("/dashboards/:id", h.updateDashboard)
 		g.POST("/dashboards/:id/widgets", h.createWidget)
 		g.PUT("/dashboards/:id/widgets/:wid", h.updateWidget)
+		g.PATCH("/dashboards/:id/widgets/:wid/layout", h.updateWidgetLayout)
 		g.DELETE("/dashboards/:id/widgets/:wid", h.deleteWidget)
 		g.GET("/datasources", h.listDataSources)
 		g.POST("/datasources/:key/query", h.queryDataSource)
@@ -164,6 +165,50 @@ func (h *Handler) deleteWidget(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// updateWidgetLayout patches only the grid position of a widget.
+func (h *Handler) updateWidgetLayout(c *gin.Context) {
+	_, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	wid, ok := parseIDParam(c, "wid")
+	if !ok {
+		return
+	}
+	var req struct {
+		GridX *int `json:"gridX"`
+		GridY *int `json:"gridY"`
+		GridW *int `json:"gridW"`
+		GridH *int `json:"gridH"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.GridX == nil && req.GridY == nil && req.GridW == nil && req.GridH == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one grid field required"})
+		return
+	}
+	if err := h.repo.UpdateWidgetLayout(wid,
+		ptrInt(req.GridX), ptrInt(req.GridY), ptrInt(req.GridW), ptrInt(req.GridH),
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "widget not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func ptrInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // ---- data sources ----

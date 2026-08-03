@@ -1,6 +1,9 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"errors"
+)
 
 // defaultWidgets 定义每个已知 app 的默认看板 widget 布局。
 // 键为 app 名（与 dashboards.app UNIQUE 列一致），值为有序 widget 列表。
@@ -33,20 +36,28 @@ var defaultWidgets = map[string][]struct {
 }
 
 // SeedDashboards 为每个已知 app 创建默认 dashboard + widgets。
-// 幂等：dashboard 用 ON CONFLICT(app) DO UPDATE upsert；
+// 已存在的 dashboard 不会被覆盖（保留用户编辑的标题）。
 // 仅当 dashboard 无任何 widget 时才插入默认 widgets，避免覆盖用户自定义布局。
 func SeedDashboards(db *sql.DB) error {
 	for app, widgets := range defaultWidgets {
+		// 查找已有 dashboard，存在则保留用户编辑的标题
 		var dashboardID int64
-		err := db.QueryRow(
-			`INSERT INTO dashboards (app, title, description)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (app) DO UPDATE SET title = EXCLUDED.title, updated_at = NOW()
-			 RETURNING id`,
-			app, app+" 看板", app+" 应用数据概览",
-		).Scan(&dashboardID)
+		err := db.QueryRow(`SELECT id FROM dashboards WHERE app = $1`, app).Scan(&dashboardID)
 		if err != nil {
-			return err
+			if errors.Is(err, sql.ErrNoRows) {
+				// 不存在则创建
+				err = db.QueryRow(
+					`INSERT INTO dashboards (app, title, description)
+					 VALUES ($1, $2, $3)
+					 RETURNING id`,
+					app, app+" 看板", app+" 应用数据概览",
+				).Scan(&dashboardID)
+				if err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
 		}
 		// 仅当 dashboard 无 widget 时才插入默认 widget（避免重复 seed）
 		var count int
