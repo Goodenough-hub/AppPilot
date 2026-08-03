@@ -210,6 +210,27 @@ func Migrate(db *sql.DB) error {
 	if err := migrateMoveWeixinReadSubscription(db); err != nil {
 		return err
 	}
+	// 管理后台页面分析：前端埋点事件表
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS analytics_events (
+    id          BIGSERIAL PRIMARY KEY,
+    app         TEXT NOT NULL,
+    user_id     BIGINT,
+    event_type  TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    title       TEXT,
+    referrer    TEXT,
+    user_agent  TEXT,
+    ip          TEXT,
+    session_id  TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ae_app_time ON analytics_events(app, created_at);
+CREATE INDEX IF NOT EXISTS idx_ae_path ON analytics_events(path);
+CREATE INDEX IF NOT EXISTS idx_ae_event_type ON analytics_events(app, event_type, created_at);
+`); err != nil {
+		return err
+	}
 	// FluxBlog：独立博客表族（与 users/transactions 完全隔离）。
 	// blog_users 软删除 + token_version 使停用/删除账号的现有令牌立即失效。
 	return MigrateBlog(db)
