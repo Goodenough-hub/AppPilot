@@ -220,7 +220,7 @@ export default function UsersPage() {
           <h2 style={{ fontSize: 20, margin: 0 }}>{app ? `${app} 用户` : '用户列表'}</h2>
         </div>
         <div className="table-container">
-          <table>
+          <table className="responsive-table">
             <thead>
               <tr>
                 <th>用户名</th>
@@ -239,22 +239,22 @@ export default function UsersPage() {
                 ].filter(Boolean).join(' ')
                 return (
                 <tr key={u.id} className={rowClass} style={{ opacity: leavingIds.has(u.id) ? 0.3 : 1, transition: 'opacity 0.2s' }}>
-                  <td style={{ fontWeight: 500 }}>{u.username}</td>
-                  <td>
+                  <td data-label="用户名" style={{ fontWeight: 500 }}>{u.username}</td>
+                  <td data-label="角色">
                     <span className={u.role === 'admin' ? 'badge badge-admin' : 'badge badge-user'}>
                       {u.role === 'admin' ? '管理员' : '用户'}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>
+                  <td data-label="交易数" style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>
                     {u.stats?.transactionCount ?? 0}
                   </td>
-                  <td style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  <td data-label="最近活跃" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
                     {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
                   </td>
-                  <td style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  <td data-label="创建时间" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
                     {new Date(u.createdAt).toLocaleString('zh-CN')}
                   </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td data-label="操作" className="actions" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <Link to={`/admin/users/${u.id}`} className="pill-link" style={{ marginRight: 16 }}>查看</Link>
                     <button
                       className="danger"

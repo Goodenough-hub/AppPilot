@@ -98,7 +98,7 @@ export default function AnalyticsPage() {
       )}
 
       {/* 概览卡片 */}
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="stat-grid">
         <StatCard label="PV" value={totalPV} gradient="linear-gradient(135deg, #818CF8, #6366F1)" glow="#818CF8" gradientValue className="animate-fade-in-up stagger-1" />
         <StatCard label="UV" value={totalUV} gradient="linear-gradient(135deg, #A855F7, #7C3AED)" glow="#A855F7" gradientValue className="animate-fade-in-up stagger-2" />
         <StatCard label="人均页面数" value={avgPV} gradient="linear-gradient(135deg, #10B981, #059669)" glow="#10B981" gradientValue className="animate-fade-in-up stagger-3" />
@@ -156,7 +156,7 @@ export default function AnalyticsPage() {
           <h2 style={{ fontSize: 20, margin: 0 }}>热门页面</h2>
         </div>
         <div className="table-container">
-          <table>
+          <table className="responsive-table">
             <thead>
               <tr>
                 <th>#</th>
@@ -168,10 +168,10 @@ export default function AnalyticsPage() {
             <tbody>
               {topPages.map((p, i) => (
                 <tr key={p.path}>
-                  <td style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 600 }}>{i + 1}</td>
-                  <td style={{ fontWeight: 500 }}>{p.path}</td>
-                  <td style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>{p.pv}</td>
-                  <td style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>{p.uv}</td>
+                  <td data-label="#" style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 600 }}>{i + 1}</td>
+                  <td data-label="页面路径" style={{ fontWeight: 500 }}>{p.path}</td>
+                  <td data-label="PV" style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>{p.pv}</td>
+                  <td data-label="UV" style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>{p.uv}</td>
                 </tr>
               ))}
               {topPages.length === 0 && (

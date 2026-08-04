@@ -128,7 +128,7 @@ export default function BlogUsersPage() {
       </section>
 
       <section className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="admin-table">
+        <table className="admin-table responsive-table">
           <thead>
             <tr>
               <th>ID</th>
@@ -146,16 +146,16 @@ export default function BlogUsersPage() {
                 className={leavingIds.has(u.id) ? 'row-leaving' : ''}
                 style={{ opacity: u.deletedAt ? 0.5 : 1 }}
               >
-                <td>{u.id}</td>
-                <td>{u.username}{u.deletedAt && <span className="muted">（已删除）</span>}</td>
-                <td>
+                <td data-label="ID">{u.id}</td>
+                <td data-label="用户名">{u.username}{u.deletedAt && <span className="muted">（已删除）</span>}</td>
+                <td data-label="状态">
                   <span className={`badge ${u.isEnabled ? 'badge-ok' : 'badge-off'}`}>
                     {u.isEnabled ? '启用' : '停用'}
                   </span>
                 </td>
-                <td>{u.tokenVersion}</td>
-                <td>{u.updatedAt ? new Date(u.updatedAt).toLocaleString() : '—'}</td>
-                <td className="actions">
+                <td data-label="tokenVersion">{u.tokenVersion}</td>
+                <td data-label="更新时间">{u.updatedAt ? new Date(u.updatedAt).toLocaleString() : '—'}</td>
+                <td data-label="操作" className="actions">
                   <button className="btn-ghost" onClick={() => toggle(u)} disabled={!!u.deletedAt}>
                     {u.isEnabled ? '停用' : '启用'}
                   </button>

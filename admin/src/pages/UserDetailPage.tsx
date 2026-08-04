@@ -59,29 +59,29 @@ export default function UserDetailPage() {
       <div className="glass-panel animate-fade-in-up stagger-1" style={{ overflow: 'hidden' }}>
         {tab === 'transactions' && (
           <div className="table-container">
-            <table>
+            <table className="responsive-table">
               <thead>
                 <tr><th>日期</th><th>类型</th><th>金额</th><th>分类</th><th>账户</th><th>备注</th></tr>
               </thead>
               <tbody>
                 {txs.map(t => (
                   <tr key={t.id}>
-                    <td style={{ color: 'var(--text-secondary)' }}>{t.date}{t.time ? ' ' + t.time : ''}</td>
-                    <td>
+                    <td data-label="日期" style={{ color: 'var(--text-secondary)' }}>{t.date}{t.time ? ' ' + t.time : ''}</td>
+                    <td data-label="类型">
                       <span className={t.type === 'income' ? 'badge badge-user' : t.type === 'expense' ? 'badge badge-admin' : 'badge'} style={t.type === 'transfer' ? { background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)' } : {}}>
                         {t.type === 'income' ? '收入' : t.type === 'expense' ? '支出' : '转账'}
                       </span>
                     </td>
-                    <td style={{ 
+                    <td data-label="金额" style={{
                       color: t.type === 'income' ? 'var(--success)' : t.type === 'expense' ? '#FCA5A5' : 'inherit',
                       fontFamily: 'Outfit, sans-serif',
                       fontWeight: 600
                     }}>
                       {t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}{t.amount}
                     </td>
-                    <td>{t.categoryId ? catMap.get(t.categoryId)?.name || '-' : '-'}</td>
-                    <td>{t.accountId ? accMap.get(t.accountId)?.name || '-' : '-'}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{t.note || '-'}</td>
+                    <td data-label="分类">{t.categoryId ? catMap.get(t.categoryId)?.name || '-' : '-'}</td>
+                    <td data-label="账户">{t.accountId ? accMap.get(t.accountId)?.name || '-' : '-'}</td>
+                    <td data-label="备注" style={{ color: 'var(--text-secondary)' }}>{t.note || '-'}</td>
                   </tr>
                 ))}
                 {txs.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>暂无交易记录</td></tr>}
@@ -91,24 +91,24 @@ export default function UserDetailPage() {
         )}
         {tab === 'categories' && (
           <div className="table-container">
-            <table>
+            <table className="responsive-table">
               <thead>
                 <tr><th>名称</th><th>类型</th><th>图标</th><th>颜色</th><th>排序</th><th>系统</th></tr>
               </thead>
               <tbody>
                 {cats.map(c => (
                   <tr key={c.id}>
-                    <td style={{ fontWeight: 500 }}>{c.name}</td>
-                    <td>{c.type === 'income' ? '收入' : '支出'}</td>
-                    <td><span style={{ fontSize: 18 }}>{c.icon}</span></td>
-                    <td>
+                    <td data-label="名称" style={{ fontWeight: 500 }}>{c.name}</td>
+                    <td data-label="类型">{c.type === 'income' ? '收入' : '支出'}</td>
+                    <td data-label="图标"><span style={{ fontSize: 18 }}>{c.icon}</span></td>
+                    <td data-label="颜色">
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'inline-block', width: 20, height: 20, background: c.colorHex, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.1)' }} />
                         <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontFamily: 'Outfit, sans-serif' }}>{c.colorHex}</span>
                       </div>
                     </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{c.sortOrder}</td>
-                    <td>
+                    <td data-label="排序" style={{ color: 'var(--text-secondary)' }}>{c.sortOrder}</td>
+                    <td data-label="系统">
                       <span className={c.isSystem ? 'badge' : ''} style={c.isSystem ? { background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)' } : { color: 'var(--text-tertiary)' }}>
                         {c.isSystem ? '系统内置' : '自定义'}
                       </span>
@@ -122,18 +122,18 @@ export default function UserDetailPage() {
         )}
         {tab === 'accounts' && (
           <div className="table-container">
-            <table>
+            <table className="responsive-table">
               <thead>
                 <tr><th>名称</th><th>类型</th><th>初始余额</th><th>排序</th><th>系统</th></tr>
               </thead>
               <tbody>
                 {accs.map(a => (
                   <tr key={a.id}>
-                    <td style={{ fontWeight: 500 }}><span style={{ marginRight: 8 }}>{a.icon}</span> {a.name}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{a.type}</td>
-                    <td style={{ fontFamily: 'Outfit, sans-serif' }}>{a.initialBalance}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{a.sortOrder}</td>
-                    <td>
+                    <td data-label="名称" style={{ fontWeight: 500 }}><span style={{ marginRight: 8 }}>{a.icon}</span> {a.name}</td>
+                    <td data-label="类型" style={{ color: 'var(--text-secondary)' }}>{a.type}</td>
+                    <td data-label="初始余额" style={{ fontFamily: 'Outfit, sans-serif' }}>{a.initialBalance}</td>
+                    <td data-label="排序" style={{ color: 'var(--text-secondary)' }}>{a.sortOrder}</td>
+                    <td data-label="系统">
                       <span className={a.isSystem ? 'badge' : ''} style={a.isSystem ? { background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)' } : { color: 'var(--text-tertiary)' }}>
                         {a.isSystem ? '系统内置' : '自定义'}
                       </span>

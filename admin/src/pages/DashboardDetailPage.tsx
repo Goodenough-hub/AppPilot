@@ -19,6 +19,7 @@ import {
 } from '../api/dashboard'
 import WidgetCard from '../components/WidgetCard'
 import AddWidgetDrawer from '../components/AddWidgetDrawer'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const ResponsiveGridLayout = WidthProvider(ResponsiveGridBase)
 
@@ -36,6 +37,9 @@ export default function DashboardDetailPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  // 手机端（≤640）改为单列只读：不渲染可拖拽网格、隐藏编辑入口
+  const isMobile = useMediaQuery('(max-width: 640px)')
+  const editing = isEditing && !isMobile
   // react-grid-layout fires onLayoutChange once after mount (compacted layout).
   // Ignore that initial fire so we don't overwrite stored positions.
   const skipLayoutSave = useRef(true)
@@ -172,25 +176,31 @@ export default function DashboardDetailPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            className={isEditing ? 'btn-primary' : 'btn-ghost'}
-            onClick={() => setIsEditing(e => !e)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, fontSize: 14 }}
-          >
-            {isEditing ? <Check size={16} /> : <Pencil size={16} />}
-            {isEditing ? '完成' : '编辑布局'}
-          </button>
-          {isEditing && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setDrawerOpen(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, fontSize: 14 }}
-            >
-              <Plus size={16} />
-              添加 Widget
-            </button>
+          {isMobile ? (
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>拖拽编辑请在大屏设备操作</span>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={isEditing ? 'btn-primary' : 'btn-ghost'}
+                onClick={() => setIsEditing(e => !e)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, fontSize: 14 }}
+              >
+                {isEditing ? <Check size={16} /> : <Pencil size={16} />}
+                {isEditing ? '完成' : '编辑布局'}
+              </button>
+              {isEditing && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setDrawerOpen(true)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, fontSize: 14 }}
+                >
+                  <Plus size={16} />
+                  添加 Widget
+                </button>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -223,7 +233,18 @@ export default function DashboardDetailPage() {
         <div className="glass-panel" style={{ padding: 16, minHeight: 200 }}>
           {widgets.length === 0 ? (
             <div style={{ padding: 24, color: 'var(--text-tertiary)', textAlign: 'center' }}>
-              暂无 widget。{isEditing && '点击「添加 Widget」创建第一个。'}
+              暂无 widget。{editing && '点击「添加 Widget」创建第一个。'}
+            </div>
+          ) : isMobile ? (
+            <div className="dashboard-mobile-stack">
+              {widgets.map(w => (
+                <WidgetCard
+                  key={w.id}
+                  widget={w}
+                  isEditing={false}
+                  onDelete={() => handleDelete(w)}
+                />
+              ))}
             </div>
           ) : (
             <ResponsiveGridLayout
@@ -234,8 +255,8 @@ export default function DashboardDetailPage() {
               rowHeight={ROW_HEIGHT}
               margin={MARGIN}
               containerPadding={[0, 0]}
-              isDraggable={isEditing}
-              isResizable={isEditing}
+              isDraggable={editing}
+              isResizable={editing}
               compactType="vertical"
               useCSSTransforms
               onLayoutChange={handleLayoutChange}
@@ -244,7 +265,7 @@ export default function DashboardDetailPage() {
                 <div key={w.id}>
                   <WidgetCard
                     widget={w}
-                    isEditing={isEditing}
+                    isEditing={editing}
                     onDelete={() => handleDelete(w)}
                   />
                 </div>

@@ -570,3 +570,180 @@ a:hover {
   border: 2px dashed var(--primary) !important;
   border-radius: var(--radius-lg);
 }
+
+/* ========================================================================
+   响应式 / 设备适配
+   桌面（>1024px）保持原样；以下规则只在移动/平板断点内生效。
+   ======================================================================== */
+
+/* 移动端专属元素在桌面隐藏 */
+.admin-topbar,
+.admin-drawer-backdrop,
+.admin-drawer-close { display: none; }
+
+/* ===== 平板 + 手机（≤1024px）：侧边栏转抽屉 ===== */
+@media (max-width: 1024px) {
+  .admin-shell {
+    display: block;
+    padding: 0;
+    gap: 0;
+  }
+
+  /* 顶栏 */
+  .admin-topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: var(--space-3) var(--space-4);
+    background: rgba(11, 11, 15, 0.8);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .admin-topbar .admin-brand {
+    margin-bottom: 0;
+    font-size: 18px;
+  }
+  .admin-topbar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+  }
+
+  /* 侧边栏 → 左侧滑出抽屉 */
+  .admin-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    width: 280px;
+    max-width: 82vw;
+    z-index: 50;
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    transform: translateX(-100%);
+    transition: transform var(--dur-sheet) var(--ease-drawer);
+  }
+  .admin-sidebar.open { transform: translateX(0); }
+
+  .admin-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+  }
+  .admin-sidebar-head .admin-brand { margin-bottom: 0; }
+  .admin-drawer-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 6px;
+  }
+
+  /* 遮罩 */
+  .admin-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-sheet) var(--ease-drawer);
+  }
+  .admin-drawer-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .admin-main {
+    padding: var(--space-4);
+    max-width: none;
+  }
+
+  /* 网格降列 */
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .charts-row { grid-template-columns: 1fr; }
+}
+
+/* ===== 手机（≤640px） ===== */
+@media (max-width: 640px) {
+  .admin-main { padding: var(--space-3); }
+  .page-container { padding: var(--space-4); }
+
+  .stat-grid { grid-template-columns: 1fr; }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .admin-page-header h1 { font-size: 22px; }
+  .page-header h1 { font-size: 22px; }
+  .stat-card-value { font-size: 28px; }
+
+  /* 触摸目标 + 防 iOS 聚焦缩放 */
+  input, select, .form-input { font-size: 16px; }
+  button { min-height: 44px; }
+
+  /* ===== 表格卡片化 ===== */
+  .responsive-table thead { display: none; }
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+  .responsive-table tr {
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-3);
+    overflow: hidden;
+  }
+  .responsive-table tr:hover td { background: transparent; }
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    text-align: right;
+    padding: 10px var(--space-4);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .responsive-table tr td:last-child { border-bottom: none; }
+  .responsive-table td::before {
+    content: attr(data-label);
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  /* 空态 / 跨列行：整行居中，不显示列名 */
+  .responsive-table td[colspan] {
+    display: block;
+    text-align: center;
+  }
+  .responsive-table td[colspan]::before { display: none; }
+  /* 操作列：按钮靠右成行 */
+  .responsive-table td.actions { justify-content: flex-end; flex-wrap: wrap; }
+}
+
+/* 仪表盘手机端单列堆叠 */
+.dashboard-mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
