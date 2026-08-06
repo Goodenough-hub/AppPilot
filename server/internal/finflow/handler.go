@@ -2,7 +2,9 @@ package finflow
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -266,12 +268,28 @@ func (h *Handler) updateAccount(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var a Account
-	if err := c.ShouldBindJSON(&a); err != nil {
+	// 读原始 body：既解析成 Account 取值，也解析成 map 判断哪些字段真正下发，
+	// 从而做局部更新（PATCH），避免前端只发部分字段时把缺失字段覆盖成零值。
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	out, err := h.repo.UpdateAccount(userID(c), id, a)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var a Account
+	if err := json.Unmarshal(body, &a); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	fields := make(map[string]bool, len(raw))
+	for k := range raw {
+		fields[k] = true
+	}
+	out, err := h.repo.UpdateAccount(userID(c), id, a, fields)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
