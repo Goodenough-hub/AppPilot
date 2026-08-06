@@ -270,13 +270,49 @@ func (r *Repository) CreateAccount(userID int64, a Account) (*Account, error) {
 	return &out, nil
 }
 
-func (r *Repository) UpdateAccount(userID, id int64, a Account) (*Account, error) {
-	row := r.db.QueryRow(
-		`UPDATE accounts SET name=$3, type=$4, icon=$5, color_hex=$6, initial_balance=$7, sort_order=$8, parent_id=$9
-		 WHERE id=$1 AND user_id=$2
-		 RETURNING id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id, created_at`,
-		id, userID, a.Name, a.Type, a.Icon, a.ColorHex, a.InitialBalance, a.SortOrder, idPtrToNullInt(a.ParentID),
-	)
+func (r *Repository) UpdateAccount(userID, id int64, a Account, fields map[string]bool) (*Account, error) {
+	// 只更新前端实际下发的字段（局部更新）。未下发的字段保持库中原值，
+	// 避免把 type / sort_order / parent_id 等覆盖成零值。
+	sets := []string{}
+	args := []any{id, userID}
+	add := func(col string, val any) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s=$%d", col, len(args)))
+	}
+	if fields["name"] {
+		add("name", a.Name)
+	}
+	if fields["type"] {
+		add("type", a.Type)
+	}
+	if fields["icon"] {
+		add("icon", a.Icon)
+	}
+	if fields["colorHex"] {
+		add("color_hex", a.ColorHex)
+	}
+	if fields["initialBalance"] {
+		add("initial_balance", a.InitialBalance)
+	}
+	if fields["sortOrder"] {
+		add("sort_order", a.SortOrder)
+	}
+	if fields["parentId"] {
+		add("parent_id", idPtrToNullInt(a.ParentID))
+	}
+
+	const cols = "id, name, type, icon, color_hex, initial_balance, sort_order, is_system, parent_id, created_at"
+	var query string
+	if len(sets) == 0 {
+		// 无字段可更新，直接返回当前值
+		query = `SELECT ` + cols + ` FROM accounts WHERE id=$1 AND user_id=$2`
+	} else {
+		query = fmt.Sprintf(
+			`UPDATE accounts SET %s WHERE id=$1 AND user_id=$2 RETURNING %s`,
+			strings.Join(sets, ", "), cols,
+		)
+	}
+	row := r.db.QueryRow(query, args...)
 	var out Account
 	var parentID sql.NullInt64
 	if err := row.Scan(&out.ID, &out.Name, &out.Type, &out.Icon, &out.ColorHex, &out.InitialBalance, &out.SortOrder, &out.IsSystem, &parentID, &out.CreatedAt); err != nil {
