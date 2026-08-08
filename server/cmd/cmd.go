@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -89,6 +90,12 @@ func serve(cfg *config.Config) error {
 	blogRepo := blog.NewRepository(pg)
 	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, cfg.BlogAssetDir)
 	blogHandler.Register(v1.Group("/blog"))
+
+	// 定时发布后台 worker：每 60s 扫描到点的 scheduled_publish_at 草稿并提升为 published。
+	blogSched := blog.NewScheduler(blogRepo)
+	blogCtx, blogCancel := context.WithCancel(context.Background())
+	defer blogCancel()
+	blogSched.Start(blogCtx)
 
 	// 埋点：公开 track 端点 + admin 鉴权的分析查询
 	analyticsRepo := analytics.NewRepository(pg)

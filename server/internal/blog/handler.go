@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -78,6 +79,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 
 	rg.POST("/drafts/:id/publish", blogAuth, h.publish)
 	rg.POST("/drafts/:id/unpublish", blogAuth, h.unpublish)
+	rg.GET("/tags", blogAuth, h.listTags)
 
 		// Project 管理（需登录）
 		rg.POST("/projects", blogAuth, h.createProject)
@@ -562,8 +564,9 @@ func (h *Handler) getAsset(c *gin.Context) {
 
 // ==================== Publish / Unpublish ====================
 
-// publish 把草稿置为已发布（DB 内同步翻转，不再提交 Git）。
-// 可选 body {visibility}：发布同时调整可见性；缺省保持原 visibility。
+// publish 把草稿置为已发布或定时发布。
+// 请求体可选字段：visibility（同时调整可见性）、scheduledPublishAt（定时）、projectId、tags。
+// 缺省保持原值；scheduledPublishAt 非 nil 表示定时发布（status 保持 draft）。
 func (h *Handler) publish(c *gin.Context) {
 	id, ok := parseIDParam(c, "id")
 	if !ok {
@@ -578,16 +581,24 @@ func (h *Handler) publish(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	vis := d.Visibility
 	var req PublishRequest
-	if err := c.ShouldBindJSON(&req); err == nil && req.Visibility != nil {
-		switch *req.Visibility {
-		case VisibilityPublic, VisibilityPrivate:
-			vis = *req.Visibility
+	_ = c.ShouldBindJSON(&req)
+	// 校验定时时间：非 nil 时必须 > now（1 分钟容差防时钟漂移）
+	if req.ScheduledPublishAt != nil {
+		if req.ScheduledPublishAt.Before(time.Now().Add(-time.Minute)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scheduledPublishAt 不能是过去时间"})
+			return
 		}
 	}
-	// 已发布且无可见性变更、版本无待发布修改：no-op。
-	if d.Status == StatusPublished && d.PublishedVersion != nil && d.Version == *d.PublishedVersion && vis == d.Visibility {
+	// 缺省 visibility 保持原值
+	if req.Visibility == nil {
+		v := d.Visibility
+		req.Visibility = &v
+	}
+	// 已发布且无可见性变更、无待发布修改、无定时 → no-op
+	if d.Status == StatusPublished && d.PublishedVersion != nil && d.Version == *d.PublishedVersion &&
+		*req.Visibility == d.Visibility && req.ScheduledPublishAt == nil &&
+		req.ProjectID == nil && req.Tags == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"id":         encodeID(d.ID),
 			"status":     StatusPublished,
@@ -598,20 +609,46 @@ func (h *Handler) publish(c *gin.Context) {
 	}
 	// 发布前创建检查点，便于事后回滚到发布时的内容。
 	_ = h.repo.CreateCheckpoint(d)
-	updated, err := h.repo.PublishDraft(d.ID, vis)
+	updated, err := h.repo.PublishDraft(d.ID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "publish", fmt.Sprintf("%s@v%d", updated.Slug, updated.Version))
+	auditAction := "publish"
+	if req.ScheduledPublishAt != nil {
+		auditAction = "schedule_publish"
+	}
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), auditAction,
+		fmt.Sprintf("%s@v%d", updated.Slug, updated.Version))
+	if req.ScheduledPublishAt != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"id":                encodeID(updated.ID),
+			"status":            updated.Status,
+			"visibility":        updated.Visibility,
+			"scheduled":          true,
+			"scheduledPublishAt": updated.ScheduledPublishAt,
+			"updatedAt":         updated.UpdatedAt,
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"id":              encodeID(updated.ID),
-		"status":          updated.Status,
-		"visibility":      updated.Visibility,
+		"id":               encodeID(updated.ID),
+		"status":           updated.Status,
+		"visibility":       updated.Visibility,
 		"publishedVersion": updated.PublishedVersion,
-		"publishedAt":     updated.PublishedAt,
-		"updatedAt":       updated.UpdatedAt,
+		"publishedAt":      updated.PublishedAt,
+		"updatedAt":        updated.UpdatedAt,
 	})
+}
+
+// listTags 返回当前用户所有草稿的去重标签列表。
+func (h *Handler) listTags(c *gin.Context) {
+	tags, err := h.repo.ListTags(blogUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tags": tags})
 }
 
 // unpublish 把已发布草稿撤回为草稿（保留 visibility，仅改 status）。

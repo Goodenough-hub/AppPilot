@@ -204,16 +204,16 @@ func (r *Repository) VerifyPassword(u *BlogUser, password string) error {
 
 // ==================== Draft ====================
 
-const draftCols = "d.id, d.user_id, d.slug, d.title, d.description, d.tags, d.cover, d.markdown, d.status, d.visibility, d.version, d.published_commit_sha, d.published_version, d.published_at, d.created_at, d.updated_at, d.project_id, p.name AS project_name"
+const draftCols = "d.id, d.user_id, d.slug, d.title, d.description, d.tags, d.cover, d.markdown, d.status, d.visibility, d.version, d.published_commit_sha, d.published_version, d.published_at, d.scheduled_publish_at, d.created_at, d.updated_at, d.project_id, p.name AS project_name"
 
 // draftRetCols 是 blog_drafts 表本身的列（无前缀/无 JOIN），用于 INSERT/UPDATE RETURNING
 // 后在应用层补 project_id 再去查 project_name。
-const draftRetCols = "id, user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_commit_sha, published_version, published_at, created_at, updated_at, project_id"
+const draftRetCols = "id, user_id, slug, title, description, tags, cover, markdown, status, visibility, version, published_commit_sha, published_version, published_at, scheduled_publish_at, created_at, updated_at, project_id"
 
 func scanDraft(sc func(...any) error) (*Draft, error) {
 	d := &Draft{}
 	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
-		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID, &d.ProjectName)
+		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.ScheduledPublishAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID, &d.ProjectName)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func scanDraft(sc func(...any) error) (*Draft, error) {
 func (r *Repository) scanDraftRet(sc func(...any) error) (*Draft, error) {
 	d := &Draft{}
 	err := sc(&d.ID, &d.UserID, &d.Slug, &d.Title, &d.Description, pq.Array(&d.Tags),
-		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID)
+		&d.Cover, &d.Markdown, &d.Status, &d.Visibility, &d.Version, &d.PublishedCommitSha, &d.PublishedVersion, &d.PublishedAt, &d.ScheduledPublishAt, &d.CreatedAt, &d.UpdatedAt, &d.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -466,17 +466,51 @@ func (r *Repository) SetDraftStatus(id int64, status string) error {
 	return err
 }
 
-// PublishDraft 同步发布：status=published、published_version=version、
-// published_at=COALESCE(已有, NOW())、visibility 按入参更新。返回最新草稿。
-func (r *Repository) PublishDraft(id int64, visibility string) (*Draft, error) {
+// PublishDraft 同步发布或定时发布。
+//   - req.ScheduledPublishAt != nil：定时发布，只写 scheduled_publish_at，status 保持 draft
+//   - req.ScheduledPublishAt == nil：立即发布，status=published、published_version=version、
+//     published_at=COALESCE(已有, NOW())、scheduled_publish_at=NULL
+//
+// 可选更新 visibility/project_id/tags（nil 字段保持原值）。返回最新草稿。
+func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) {
+	sets := []string{"updated_at = NOW()"}
+	args := []any{}
+	n := 1
+	add := func(col string, val any) {
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+		args = append(args, val)
+		n++
+	}
+	if req.Visibility != nil && (*req.Visibility == VisibilityPublic || *req.Visibility == VisibilityPrivate) {
+		add("visibility", *req.Visibility)
+	}
+	if req.ProjectID != nil {
+		add("project_id", *req.ProjectID)
+	}
+	if req.Tags != nil {
+		tags := req.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		add("tags", pq.Array(tags))
+	}
+	if req.ScheduledPublishAt != nil {
+		add("scheduled_publish_at", *req.ScheduledPublishAt)
+	} else {
+		sets = append(sets, "status = '"+StatusPublished+"'",
+			"published_version = version",
+			"published_at = COALESCE(published_at, NOW())",
+			"scheduled_publish_at = NULL")
+	}
+	args = append(args, id)
+
 	d, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
-			`UPDATE blog_drafts
-			 SET status = $1, visibility = $2, published_version = version,
-			     published_at = COALESCE(published_at, NOW()), updated_at = NOW()
-			 WHERE id = $3
-			 RETURNING `+draftRetCols,
-			StatusPublished, visibility, id,
+			fmt.Sprintf(
+				`UPDATE blog_drafts SET %s WHERE id = $%d RETURNING `+draftRetCols,
+				strings.Join(sets, ", "), n,
+			),
+			args...,
 		).Scan(dst...)
 	})
 	if err != nil {
@@ -486,6 +520,82 @@ func (r *Repository) PublishDraft(id int64, visibility string) (*Draft, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+// PublishScheduledDrafts 提升所有到点的定时草稿为已发布。
+// 由后台 scheduler 周期调用。返回受影响的草稿 ID 列表。
+func (r *Repository) PublishScheduledDrafts() ([]int64, error) {
+	rows, err := r.db.Query(
+		`SELECT id FROM blog_drafts
+		 WHERE status = $1 AND scheduled_publish_at IS NOT NULL AND scheduled_publish_at <= NOW()
+		 ORDER BY scheduled_publish_at ASC
+		 FOR UPDATE`,
+		StatusDraft,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	published := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		_, err := r.scanDraftRet(func(dst ...any) error {
+			return r.db.QueryRow(
+				`UPDATE blog_drafts
+				 SET status = $1, published_version = version,
+				     published_at = COALESCE(published_at, NOW()),
+				     scheduled_publish_at = NULL, updated_at = NOW()
+				 WHERE id = $2 AND status = $3
+				 RETURNING `+draftRetCols,
+				StatusPublished, id, StatusDraft,
+			).Scan(dst...)
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return published, err
+		}
+		published = append(published, id)
+	}
+	return published, nil
+}
+
+// ListTags 列出当前用户所有草稿中去重后的标签，按字母序排序。
+func (r *Repository) ListTags(userID int64) ([]string, error) {
+	rows, err := r.db.Query(
+		`SELECT DISTINCT unnest(tags) AS tag FROM blog_drafts
+		 WHERE user_id = $1 ORDER BY tag`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tags []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	return tags, rows.Err()
 }
 
 // UnpublishDraft 撤回：status=draft（保留 visibility、published_at、published_version）。
@@ -508,12 +618,12 @@ func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
 // ==================== 公开 / 私有读 ====================
 
 // summaryCols 是列表场景的精简列：不含 markdown 正文。（含 project 信息）
-const summaryCols = "d.id, d.slug, d.title, d.description, d.tags, d.cover, d.status, d.visibility, d.version, d.published_at, d.updated_at, d.project_id, p.name AS project_name"
+const summaryCols = "d.id, d.slug, d.title, d.description, d.tags, d.cover, d.status, d.visibility, d.version, d.published_at, d.scheduled_publish_at, d.updated_at, d.project_id, p.name AS project_name"
 
 func scanDraftSummary(sc func(...any) error) (*DraftSummary, error) {
 	s := &DraftSummary{}
 	err := sc(&s.ID, &s.Slug, &s.Title, &s.Description, pq.Array(&s.Tags),
-		&s.Cover, &s.Status, &s.Visibility, &s.Version, &s.PublishedAt, &s.UpdatedAt, &s.ProjectID, &s.ProjectName)
+		&s.Cover, &s.Status, &s.Visibility, &s.Version, &s.PublishedAt, &s.ScheduledPublishAt, &s.UpdatedAt, &s.ProjectID, &s.ProjectName)
 	if err != nil {
 		return nil, err
 	}

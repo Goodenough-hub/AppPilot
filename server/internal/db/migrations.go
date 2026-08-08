@@ -391,6 +391,9 @@ func MigrateBlog(db *sql.DB) error {
 		// blog_projects 表 + blog_drafts.project_id 外键（project 管理功能）。
 		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES blog_projects(id) ON DELETE SET NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_blog_drafts_project ON blog_drafts(project_id) WHERE project_id IS NOT NULL`,
+		// 定时发布：scheduled_publish_at 非 nil 表示未来发布时间，到点由 scheduler 提升为 published。
+		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS scheduled_publish_at TIMESTAMPTZ`,
+		`CREATE INDEX IF NOT EXISTS idx_blog_drafts_scheduled ON blog_drafts(scheduled_publish_at) WHERE scheduled_publish_at IS NOT NULL`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

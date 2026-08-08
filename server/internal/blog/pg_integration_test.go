@@ -148,6 +148,8 @@ func TestRestoreVersion(t *testing.T) {
 // 为测试引入的引用，避免 import 抖动。
 var _ = time.Second
 
+func ptrString(s string) *string { return &s }
+
 // publishForTest 把草稿直接置为已发布（保留其现有 visibility），供读接口测试。
 func publishForTest(t *testing.T, repo *Repository, id int64) {
 	t.Helper()
@@ -155,7 +157,7 @@ func publishForTest(t *testing.T, repo *Repository, id int64) {
 	if err != nil {
 		t.Fatalf("get draft: %v", err)
 	}
-	if _, err := repo.PublishDraft(id, d.Visibility); err != nil {
+	if _, err := repo.PublishDraft(id, PublishRequest{Visibility: &d.Visibility}); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }
@@ -169,7 +171,7 @@ func TestPublishSyncFlip(t *testing.T) {
 	uid, repo := newBlogUser(t, pg)
 	d, _ := repo.CreateDraft(uid, Draft{Slug: "flip", Title: "T", Markdown: "m", Visibility: VisibilityPublic})
 
-	pub, err := repo.PublishDraft(d.ID, VisibilityPublic)
+	pub, err := repo.PublishDraft(d.ID, PublishRequest{Visibility: ptrString(VisibilityPublic)})
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -197,7 +199,7 @@ func TestPublishSyncFlip(t *testing.T) {
 	}
 
 	// 再发布：published_at 保持首次值不变。
-	pub2, _ := repo.PublishDraft(d.ID, VisibilityPrivate)
+	pub2, _ := repo.PublishDraft(d.ID, PublishRequest{Visibility: ptrString(VisibilityPrivate)})
 	if pub2.Visibility != VisibilityPrivate {
 		t.Fatalf("re-publish visibility = %s, want private", pub2.Visibility)
 	}
