@@ -608,6 +608,15 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 	// 发布前创建检查点，便于事后回滚到发布时的内容。
+	// 先把 req.Tags/req.ProjectID 应用到 d，确保快照里含用户在 PublishModal
+	// 选的最终值——否则 PublishDraft 在 CreateCheckpoint 之后才写 blog_drafts.tags，
+	// 公开读取走 published_version 快照时会拿到旧 tags。
+	if req.Tags != nil {
+		d.Tags = req.Tags
+	}
+	if req.ProjectID != nil {
+		d.ProjectID = req.ProjectID
+	}
 	_ = h.repo.CreateCheckpoint(d)
 	updated, err := h.repo.PublishDraft(d.ID, req)
 	if err != nil {
