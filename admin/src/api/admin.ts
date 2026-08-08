@@ -107,47 +107,17 @@ export async function getStats(app?: string): Promise<AdminStats> {
   return data
 }
 
-// ==================== FluxBlog 账号管理 ====================
+// ==================== FluxBlog SSO ====================
 
-export interface BlogUser {
-  id: string
+// 进入博客写作后台的免登录入口：以当前 admin 身份签发 blog JWT cookie。
+// 后端会自动维护同名 blog_users stub（admin 永不需要知道其密码）。
+// 调用方拿到 redirect 后用顶层导航跳转，让浏览器带上刚写入的 httpOnly cookie。
+export interface BlogSession {
+  redirect: string
   username: string
-  isEnabled: boolean
-  tokenVersion: number
-  deletedAt: string | null
-  createdAt: string
-  updatedAt: string
 }
 
-export interface CreateBlogUserRequest {
-  username: string
-  password: string
-}
-
-export interface UpdateBlogUserRequest {
-  username?: string
-  isEnabled?: boolean
-}
-
-export async function listBlogUsers(): Promise<BlogUser[]> {
-  const { data } = await apiClient.get<BlogUser[]>('/admin/blog-users')
+export async function startBlogSession(): Promise<BlogSession> {
+  const { data } = await apiClient.post<BlogSession>('/admin/blog/session')
   return data
-}
-
-export async function createBlogUser(req: CreateBlogUserRequest): Promise<BlogUser> {
-  const { data } = await apiClient.post<BlogUser>('/admin/blog-users', req)
-  return data
-}
-
-export async function updateBlogUser(id: string, req: UpdateBlogUserRequest): Promise<BlogUser> {
-  const { data } = await apiClient.patch<BlogUser>(`/admin/blog-users/${id}`, req)
-  return data
-}
-
-export async function deleteBlogUser(id: string): Promise<void> {
-  await apiClient.delete(`/admin/blog-users/${id}`)
-}
-
-export async function resetBlogUserPassword(id: string, password: string): Promise<void> {
-  await apiClient.put(`/admin/blog-users/${id}/password`, { password })
 }

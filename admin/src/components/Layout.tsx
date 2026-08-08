@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, PenLine, Activity, BarChart3, LogOut, Menu, X, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Users, Activity, BarChart3, LogOut, Menu, X, PencilLine, type LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { startBlogSession } from '../api/admin'
 import Logo from './Logo'
 
 const navItems: { to: string; label: string; end: boolean; icon: LucideIcon }[] = [
   { to: '/admin', label: '概览', end: true, icon: LayoutDashboard },
   { to: '/admin/dashboards/finflow', label: '应用看板', end: false, icon: BarChart3 },
   { to: '/admin/users', label: '用户管理', end: false, icon: Users },
-  { to: '/admin/blog-users', label: '博客账号', end: false, icon: PenLine },
   { to: '/admin/analytics', label: '页面分析', end: false, icon: Activity },
 ]
 
@@ -17,10 +17,27 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [blogLoading, setBlogLoading] = useState(false)
+  const [blogError, setBlogError] = useState<string | null>(null)
 
   const handleLogout = () => {
     logout()
     navigate('/admin/login')
+  }
+
+  // 进入 FluxBlog 写作后台：后端用 admin 身份签发 blog JWT cookie，
+  // 然后顶层跳转 /blog/studio/，让浏览器带新写入的 cookie。
+  const handleBlogSession = async () => {
+    setBlogError(null)
+    setBlogLoading(true)
+    try {
+      const { redirect } = await startBlogSession()
+      window.location.href = redirect
+    } catch (err: any) {
+      setBlogLoading(false)
+      const status = err?.response?.status
+      setBlogError(status === 403 ? '博客账号已停用，请在「博客账号」页重新启用' : '进入博客写作失败，请稍后重试')
+    }
   }
 
   // 路由变化时自动关闭抽屉
@@ -92,6 +109,19 @@ export default function Layout() {
               </NavLink>
             )
           })}
+          <button
+            type="button"
+            className="admin-nav-link admin-nav-action"
+            onClick={handleBlogSession}
+            disabled={blogLoading}
+            aria-label="进入博客写作后台"
+          >
+            <PencilLine size={18} strokeWidth={2} />
+            {blogLoading ? '正在进入…' : '博客写作'}
+          </button>
+          {blogError && (
+            <div className="admin-nav-hint" role="alert">{blogError}</div>
+          )}
         </nav>
         <div className="admin-sidebar-footer">
           <div className="admin-user">

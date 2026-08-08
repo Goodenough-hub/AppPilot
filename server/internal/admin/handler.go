@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -15,20 +17,22 @@ import (
 )
 
 type Handler struct {
-	db       *sql.DB
-	authRepo *auth.Repository
-	authH    *auth.Handler
-	finflow  *finflow.Handler
-	blogRepo *blog.Repository
+	db            *sql.DB
+	authRepo      *auth.Repository
+	authH         *auth.Handler
+	finflow       *finflow.Handler
+	blogRepo      *blog.Repository
+	blogJwtSecret string
 }
 
-func NewHandler(db *sql.DB, authRepo *auth.Repository, jwtSecret string, blogRepo *blog.Repository) *Handler {
+func NewHandler(db *sql.DB, authRepo *auth.Repository, jwtSecret string, blogRepo *blog.Repository, blogJwtSecret string) *Handler {
 	return &Handler{
-		db:       db,
-		authRepo: authRepo,
-		authH:    auth.NewHandler(authRepo, jwtSecret),
-		finflow:  finflow.NewHandler(db),
-		blogRepo: blogRepo,
+		db:            db,
+		authRepo:      authRepo,
+		authH:         auth.NewHandler(authRepo, jwtSecret),
+		finflow:       finflow.NewHandler(db),
+		blogRepo:      blogRepo,
+		blogJwtSecret: blogJwtSecret,
 	}
 }
 
@@ -44,12 +48,16 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 		g.GET("/users/:id/accounts", h.listUserAccounts)
 		g.GET("/stats", h.stats)
 
-		// FluxBlog 账号管理：与 finflow 用户隔离，不混入上面 users 统计。
-		g.GET("/blog-users", h.listBlogUsers)
-		g.POST("/blog-users", h.createBlogUser)
-		g.PATCH("/blog-users/:id", h.updateBlogUser)
-		g.DELETE("/blog-users/:id", h.deleteBlogUser)
-		g.PUT("/blog-users/:id/password", h.resetBlogUserPassword)
+		// FluxBlog 账号管理已移除：SSO 端点 /admin/blog/session 会按需自动建 stub
+		// 并下发 cookie，admin 无需也不应直接管理 blog_users。
+		// 若需吊销某个 admin 的博客访问，改 SQL：UPDATE blog_users SET
+		// is_enabled=false, token_version=token_version+1 WHERE username=...
+
+		// admin SSO 进入 FluxBlog 写作后台：以当前 admin 用户名为 key
+		// 查找或自动创建 blog_users stub（随机密码，admin 永不需要知道），
+		// 签发 blog JWT 并下发 fluxblog_token/fluxblog_session cookie。
+		// 调用方随后跳转 /blog/studio/，cookie 已就绪，无需二次登录。
+		g.POST("/blog/session", h.startBlogSession)
 	}
 }
 
@@ -278,130 +286,6 @@ func parseIDParam(c *gin.Context, key string) (int64, bool) {
 // ==================== FluxBlog 账号管理 ====================
 // 独立于 finflow users：软删除、停用即时失效（token_version 递增）。
 
-func (h *Handler) listBlogUsers(c *gin.Context) {
-	users, err := h.blogRepo.ListUsers()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	out := make([]gin.H, 0, len(users))
-	for _, u := range users {
-		out = append(out, gin.H{
-			"id":           strconv.FormatInt(u.ID, 10),
-			"username":     u.Username,
-			"isEnabled":    u.IsEnabled,
-			"tokenVersion": u.TokenVersion,
-			"deletedAt":    u.DeletedAt,
-			"createdAt":    u.CreatedAt,
-			"updatedAt":    u.UpdatedAt,
-		})
-	}
-	c.JSON(http.StatusOK, out)
-}
-
-func (h *Handler) createBlogUser(c *gin.Context) {
-	var req blog.CreateBlogUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	u, err := h.blogRepo.Create(req.Username, req.Password)
-	if err != nil {
-		if errors.Is(err, blog.ErrUserExists) {
-			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_ = h.blogRepo.InsertAudit(nil, "create", u.Username)
-	c.JSON(http.StatusCreated, gin.H{
-		"id":        strconv.FormatInt(u.ID, 10),
-		"username":  u.Username,
-		"isEnabled": u.IsEnabled,
-		"createdAt": u.CreatedAt,
-		"updatedAt": u.UpdatedAt,
-	})
-}
-
-func (h *Handler) updateBlogUser(c *gin.Context) {
-	id, ok := parseIDParam(c, "id")
-	if !ok {
-		return
-	}
-	var req blog.UpdateBlogUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	u, err := h.blogRepo.UpdateProfile(id, req.Username, req.IsEnabled)
-	if err != nil {
-		switch {
-		case errors.Is(err, blog.ErrUserNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-		case errors.Is(err, blog.ErrUserExists):
-			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-		return
-	}
-	if req.IsEnabled != nil && !*req.IsEnabled {
-		_ = h.blogRepo.InsertAudit(&id, "disable", u.Username)
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"id":           strconv.FormatInt(u.ID, 10),
-		"username":     u.Username,
-		"isEnabled":    u.IsEnabled,
-		"tokenVersion": u.TokenVersion,
-		"updatedAt":    u.UpdatedAt,
-	})
-}
-
-func (h *Handler) deleteBlogUser(c *gin.Context) {
-	id, ok := parseIDParam(c, "id")
-	if !ok {
-		return
-	}
-	u, err := h.blogRepo.FindByID(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-		return
-	}
-	if err := h.blogRepo.SoftDelete(id); err != nil {
-		if errors.Is(err, blog.ErrUserNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_ = h.blogRepo.InsertAudit(&id, "delete", u.Username)
-	c.Status(http.StatusNoContent)
-}
-
-func (h *Handler) resetBlogUserPassword(c *gin.Context) {
-	id, ok := parseIDParam(c, "id")
-	if !ok {
-		return
-	}
-	var req blog.ResetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if err := h.blogRepo.UpdatePassword(id, req.Password); err != nil {
-		if errors.Is(err, blog.ErrUserNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_ = h.blogRepo.InsertAudit(&id, "password_change", "")
-	c.Status(http.StatusNoContent)
-}
-
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {
@@ -409,6 +293,87 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// ==================== FluxBlog SSO ====================
+// admin 用户进入博客写作后台的"免登录"入口：以 admin 用户名为 key
+// 查找或自动创建 blog_users stub，签发 blog JWT 并下发 cookie。
+// 隔离原则不破坏——admin 仍不能直接调 /blog/* 写操作（仍需 blog JWT），
+// 此端点只是把 blog JWT 经 cookie 下发给浏览器，让 /blog/studio/ 走通。
+
+// startBlogSession 把当前 admin 用户映射到 blog_users：
+//   - 已存在且启用 → 直接签发
+//   - 已存在但停用 → 403（admin 可在 /admin/blog-users 重新启用）
+//   - 不存在 → 自动创建 stub（随机密码，admin 永不需要）再签发
+//
+// 写入的 fluxblog_token/fluxblog_session cookie 与正常 blog login 完全等价。
+func (h *Handler) startBlogSession(c *gin.Context) {
+	username, _ := c.Get("username")
+	uname, _ := username.(string)
+	if uname == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing admin identity"})
+		return
+	}
+
+	u, err := h.blogRepo.FindByUsernameActive(uname)
+	switch {
+	case err == nil:
+		// 命中已存在 stub
+	case errors.Is(err, blog.ErrUserNotFound):
+		// 自动创建 stub：随机 32 字节 hex 作密码，admin 永不需要
+		pw, err := randomHex(32)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		u, err = h.blogRepo.Create(uname, pw)
+		if err != nil {
+			if errors.Is(err, blog.ErrUserExists) {
+				// 并发：同 admin 用户名已被另一请求创建 → 重查
+				u, err = h.blogRepo.FindByUsernameActive(uname)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		} else {
+			_ = h.blogRepo.InsertAudit(nil, "sso_create", u.Username)
+		}
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !u.IsEnabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "blog account disabled"})
+		return
+	}
+
+	token, _, err := blog.GenerateToken(u, h.blogJwtSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	blog.SetSessionCookies(c, token)
+	_ = h.blogRepo.InsertAudit(&u.ID, "sso_session", "")
+
+	c.JSON(http.StatusOK, gin.H{
+		"redirect": "/blog/studio/",
+		"username": u.Username,
+	})
+}
+
+// randomHex 返回 n 字节的十六进制字符串（n=32 时为 64 字符）。
+// 用于为自动创建的 blog_users stub 生成永不复用的随机密码。
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // nowWeekStart 返回本周一 00:00（本地时区）。

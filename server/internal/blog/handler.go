@@ -123,7 +123,7 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 	_ = h.repo.InsertAudit(&u.ID, "login", "")
-	setSessionCookies(c, token)
+	SetSessionCookies(c, token)
 	c.JSON(http.StatusOK, tokenResponse{
 		Token:     token,
 		ExpiresAt: exp,
@@ -157,7 +157,7 @@ func (h *Handler) refresh(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	setSessionCookies(c, token)
+	SetSessionCookies(c, token)
 	c.JSON(http.StatusOK, tokenResponse{
 		Token:     token,
 		ExpiresAt: exp,
@@ -167,7 +167,7 @@ func (h *Handler) refresh(c *gin.Context) {
 }
 
 func (h *Handler) logout(c *gin.Context) {
-	clearSessionCookies(c)
+	ClearSessionCookies(c)
 	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "logout", "")
 	c.Status(http.StatusNoContent)
 }

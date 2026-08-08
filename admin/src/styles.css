@@ -384,6 +384,34 @@ a:hover {
 
 .admin-nav-link svg { flex-shrink: 0; }
 
+/* 按钮形态的 nav link：用于"博客写作"这种不是路由、而是触发的 action。
+   button 默认 width:auto、text-align:center，这里强制撑满并左对齐，
+   其余视觉与 NavLink 完全一致。 */
+button.admin-nav-link.admin-nav-action {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+}
+button.admin-nav-link.admin-nav-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+  transform: none;
+}
+button.admin-nav-link.admin-nav-action:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.admin-nav-hint {
+  margin-top: var(--space-2);
+  padding: 6px var(--space-3);
+  font-size: 12px;
+  color: #FCA5A5;
+  background: var(--danger-bg);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
 .admin-sidebar-footer {
   padding-top: var(--space-5);
   border-top: 1px solid var(--border-light);

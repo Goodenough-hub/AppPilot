@@ -5,7 +5,6 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import UsersPage from './pages/UsersPage'
 import UserDetailPage from './pages/UserDetailPage'
-import BlogUsersPage from './pages/BlogUsersPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import DashboardDetailPage from './pages/DashboardDetailPage'
 
@@ -18,7 +17,6 @@ export default function App() {
           <Route index path="/admin" element={<DashboardPage />} />
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/users/:id" element={<UserDetailPage />} />
-          <Route path="/admin/blog-users" element={<BlogUsersPage />} />
           <Route path="/admin/analytics" element={<AnalyticsPage />} />
           <Route path="/admin/dashboards/:app" element={<DashboardDetailPage />} />
         </Route>

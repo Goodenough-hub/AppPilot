@@ -100,7 +100,7 @@ func serve(cfg *config.Config) error {
 		middleware.AdminRequired(),
 	)
 
-	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo)
+	adminHandler := admin.NewHandler(pg, authRepo, cfg.JWTSecret, blogRepo, cfg.BlogJWTSecret)
 	adminHandler.Register(
 		v1.Group("/admin"),
 		middleware.AuthRequired(cfg.JWTSecret),

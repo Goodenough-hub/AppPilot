@@ -39,17 +39,18 @@ func isSecureRequest(c *gin.Context) bool {
 	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
-// setSessionCookies 写入 token（httpOnly）与 session（JS 可读）两个 cookie。
+// SetSessionCookies 写入 token（httpOnly）与 session（JS 可读）两个 cookie。
 // SameSite=Lax 缓解 CSRF；变更接口仅接受 application/json 进一步兜底。
-func setSessionCookies(c *gin.Context, token string) {
+// 导出供 admin SSO 端点复用，避免在 admin 包重写 cookie 逻辑造成漂移。
+func SetSessionCookies(c *gin.Context, token string) {
 	secure := isSecureRequest(c)
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(blogTokenCookie, token, blogCookieMaxAge, "/", "", secure, true)
 	c.SetCookie(blogSessionCookie, "1", blogCookieMaxAge, "/", "", secure, false)
 }
 
-// clearSessionCookies 清除两个 cookie（注销）。
-func clearSessionCookies(c *gin.Context) {
+// ClearSessionCookies 清除两个 cookie（注销）。
+func ClearSessionCookies(c *gin.Context) {
 	secure := isSecureRequest(c)
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(blogTokenCookie, "", -1, "/", "", secure, true)
