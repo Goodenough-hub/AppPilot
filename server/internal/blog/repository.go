@@ -425,7 +425,7 @@ func (r *Repository) CreateCheckpoint(d *Draft) error {
 	return r.insertCheckpoint(d)
 }
 
-// insertCheckpoint 插入当前草稿状态的快照，(draft_id,version) 冲突则跳过，并裁剪到 100 条。
+// insertCheckpoint 插入当前草稿状态的快照，(draft_id,version) 冲突则跳过，并裁剪到 10 条。
 func (r *Repository) insertCheckpoint(d *Draft) error {
 	if _, err := r.db.Exec(
 		`INSERT INTO blog_draft_versions (draft_id, version, title, description, tags, cover, markdown)
@@ -438,11 +438,11 @@ func (r *Repository) insertCheckpoint(d *Draft) error {
 	return trimVersionsTx(r.db, d.ID)
 }
 
-// trimVersions 仅保留单篇最近 100 个版本快照。
+// trimVersions 仅保留单篇最近 10 个版本快照。
 func trimVersions(tx *sql.Tx, draftID int64) error {
 	_, err := tx.Exec(
 		`DELETE FROM blog_draft_versions WHERE draft_id = $1 AND id NOT IN (
-			SELECT id FROM blog_draft_versions WHERE draft_id = $1 ORDER BY version DESC LIMIT 100)`,
+			SELECT id FROM blog_draft_versions WHERE draft_id = $1 ORDER BY version DESC LIMIT 10)`,
 		draftID,
 	)
 	return err
@@ -809,7 +809,7 @@ func (r *Repository) RestoreVersion(userID, draftID, version int64) (*Draft, err
 func trimVersionsTx(db *sql.DB, draftID int64) error {
 	_, err := db.Exec(
 		`DELETE FROM blog_draft_versions WHERE draft_id = $1 AND id NOT IN (
-			SELECT id FROM blog_draft_versions WHERE draft_id = $1 ORDER BY version DESC LIMIT 100)`,
+			SELECT id FROM blog_draft_versions WHERE draft_id = $1 ORDER BY version DESC LIMIT 10)`,
 		draftID,
 	)
 	return err
