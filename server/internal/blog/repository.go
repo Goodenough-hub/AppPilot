@@ -662,6 +662,8 @@ func (r *Repository) ListPublishedPublic(projectID *int64) ([]DraftSummary, erro
 }
 
 // GetPublishedPublicBySlug 取单篇公开已发布文档（含 markdown 正文）。
+// 正文从 blog_draft_versions 中 published_version 对应的快照读取，
+// 防止草稿编辑自动保存后，公开读取直接命中草稿行的新 markdown。
 func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
@@ -674,6 +676,9 @@ func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrDraftNotFound
 		}
+		return nil, err
+	}
+	if err := r.applyPublishedSnapshot(d); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -750,6 +755,7 @@ func (r *Repository) ListPublishedPrivate(userID int64) ([]DraftSummary, error) 
 }
 
 // GetPublishedPrivateBySlug 取本人私有已发布文档（含 markdown 正文）。
+// 正文从 published_version 快照读取，原因同 GetPublishedPublicBySlug。
 func (r *Repository) GetPublishedPrivateBySlug(userID int64, slug string) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
@@ -762,6 +768,9 @@ func (r *Repository) GetPublishedPrivateBySlug(userID int64, slug string) (*Draf
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrDraftNotFound
 		}
+		return nil, err
+	}
+	if err := r.applyPublishedSnapshot(d); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -866,6 +875,28 @@ func (r *Repository) GetVersion(draftID, version int64) (*DraftVersion, error) {
 		return nil, err
 	}
 	return &v, nil
+}
+
+// applyPublishedSnapshot 用 published_version 对应的版本快照覆盖正文相关字段。
+// 防止已发布草稿被编辑自动保存后，公开/私有读取直接命中草稿行的新 markdown。
+// published_version 为 nil 或快照缺失时保持原值不变（向后兼容旧数据）。
+func (r *Repository) applyPublishedSnapshot(d *Draft) error {
+	if d == nil || d.PublishedVersion == nil {
+		return nil
+	}
+	v, err := r.GetVersion(d.ID, *d.PublishedVersion)
+	if err != nil {
+		if errors.Is(err, ErrDraftNotFound) {
+			return nil
+		}
+		return err
+	}
+	d.Title = v.Title
+	d.Description = v.Description
+	d.Tags = v.Tags
+	d.Cover = v.Cover
+	d.Markdown = v.Markdown
+	return nil
 }
 
 // RestoreVersion 把指定版本内容写回草稿为新版本（乐观推进，不含 baseVersion 冲突，
