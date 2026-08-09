@@ -83,6 +83,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	preview := rg.Group("/admin-preview", blogAuth, h.adminOnlyGuard())
 	preview.GET("/posts", h.listAllPostsForAdmin)
 	preview.GET("/posts/:slug", h.getAdminPreviewPost)
+	preview.GET("/projects", h.listAllProjectsForAdmin)
 
 	rg.GET("/drafts", blogAuth, h.listDrafts)
 	rg.POST("/drafts", blogAuth, h.createDraft)
@@ -976,4 +977,15 @@ func (h *Handler) getAdminPreviewPost(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, d)
+}
+
+// listAllProjectsForAdmin 返回所有 project 及已发布文章数（公开+私有）。
+// 供 FluxBlog /blog/preview/projects 页面使用。
+func (h *Handler) listAllProjectsForAdmin(c *gin.Context) {
+	projects, err := h.repo.ListAllProjectsWithCount()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, projects)
 }

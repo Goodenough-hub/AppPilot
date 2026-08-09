@@ -1101,6 +1101,31 @@ func (r *Repository) ListPublicProjectsWithCount() ([]ProjectPublic, error) {
 	return out, rows.Err()
 }
 
+// ListAllProjectsWithCount 列出所有 project 及已发布文章数（公开+私有，不限 visibility）。
+// 供 admin 预览页 /blog/preview/projects 使用；路由层 adminOnlyGuard 已挡普通 blog 用户。
+func (r *Repository) ListAllProjectsWithCount() ([]ProjectPublic, error) {
+	rows, err := r.db.Query(
+		`SELECT p.id, p.name, p.intro, COUNT(d.id)
+		 FROM blog_projects p
+		 LEFT JOIN blog_drafts d ON d.project_id = p.id AND d.status = 'published'
+		 GROUP BY p.id, p.name, p.intro, p.sort_order
+		 ORDER BY p.sort_order ASC, p.id ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProjectPublic{}
+	for rows.Next() {
+		var pp ProjectPublic
+		if err := rows.Scan(&pp.ID, &pp.Name, &pp.Intro, &pp.PostCount); err != nil {
+			return nil, err
+		}
+		out = append(out, pp)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) CreateProject(userID int64, p Project) (*Project, error) {
 	out, err := scanProject(func(dst ...any) error {
 		return r.db.QueryRow(
