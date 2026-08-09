@@ -1161,6 +1161,24 @@ func (r *Repository) GetProject(userID, id int64) (*Project, error) {
 	return p, nil
 }
 
+// GetProjectByID 不带 user 过滤，供公开读（/projects/:id）与 admin 预览使用。
+// project 元数据本身不敏感，属主校验在写操作端（Update/Delete）已单独做。
+func (r *Repository) GetProjectByID(id int64) (*Project, error) {
+	p, err := scanProject(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+projectCols+` FROM blog_projects WHERE id = $1`,
+			id,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrProjectNotFound
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
 func (r *Repository) UpdateProject(userID, id int64, req UpdateProjectRequest) (*Project, error) {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}

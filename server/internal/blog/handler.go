@@ -797,7 +797,7 @@ func (h *Handler) getPublicProject(c *gin.Context) {
 	if !ok {
 		return
 	}
-	p, err := h.repo.GetProject(blogUserID(c), id)
+	p, err := h.repo.GetProjectByID(id)
 	if err != nil {
 		if errors.Is(err, ErrProjectNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
