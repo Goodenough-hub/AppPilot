@@ -54,6 +54,20 @@ func (r *Repository) FindByID(id int64) (*User, error) {
 	return u, nil
 }
 
+// FindAdminCredentials 返回 admin 角色用户的 id 与密码哈希。
+// 用户不存在或不是 admin 角色都返回 ErrUserNotFound。
+// 供 blog 包交叉验证 admin 凭据用（blog login 端点：blog_users 未命中时降级查 users 表）。
+func (r *Repository) FindAdminCredentials(username string) (int64, string, error) {
+	u, err := r.FindByUsername(username)
+	if err != nil {
+		return 0, "", err
+	}
+	if u.Role != "admin" {
+		return 0, "", ErrUserNotFound
+	}
+	return u.ID, u.PasswordHash, nil
+}
+
 func (r *Repository) List() ([]User, error) {
 	rows, err := r.db.Query(
 		`SELECT id, username, role, app_scope, avatar, created_at, updated_at FROM users ORDER BY id`,

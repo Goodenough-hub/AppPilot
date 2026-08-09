@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, Activity, BarChart3, LogOut, Menu, X, PencilLine, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Users, Activity, BarChart3, LogOut, Menu, X, PencilLine, Eye, type LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { startBlogSession } from '../api/admin'
 import Logo from './Logo'
@@ -25,18 +25,19 @@ export default function Layout() {
     navigate('/admin/login')
   }
 
-  // 进入 FluxBlog 写作后台：后端用 admin 身份签发 blog JWT cookie，
-  // 然后顶层跳转 /blog/studio/，让浏览器带新写入的 cookie。
-  const handleBlogSession = async () => {
+  // 进入 FluxBlog：后端用 admin 身份签发 blog JWT cookie（startBlogSession）。
+  // cookie 下发后浏览器可自由跳转任意 /blog/* 路径，前端按 target 决定去哪。
+  // 「博客写作」→ /blog/studio/；「博客预览」→ /blog/preview/。新开 tab，保留 admin 面板。
+  const enterBlog = async (target: string) => {
     setBlogError(null)
     setBlogLoading(true)
     try {
-      const { redirect } = await startBlogSession()
-      window.location.href = redirect
+      await startBlogSession()
+      window.open(target, '_blank', 'noopener')
     } catch (err: any) {
       setBlogLoading(false)
       const status = err?.response?.status
-      setBlogError(status === 403 ? '博客账号已停用，请在「博客账号」页重新启用' : '进入博客写作失败，请稍后重试')
+      setBlogError(status === 403 ? '博客账号已停用，请在「博客账号」页重新启用' : '进入博客失败，请稍后重试')
     }
   }
 
@@ -112,12 +113,22 @@ export default function Layout() {
           <button
             type="button"
             className="admin-nav-link admin-nav-action"
-            onClick={handleBlogSession}
+            onClick={() => enterBlog('/blog/studio/')}
             disabled={blogLoading}
             aria-label="进入博客写作后台"
           >
             <PencilLine size={18} strokeWidth={2} />
             {blogLoading ? '正在进入…' : '博客写作'}
+          </button>
+          <button
+            type="button"
+            className="admin-nav-link admin-nav-action"
+            onClick={() => enterBlog('/blog/preview/')}
+            disabled={blogLoading}
+            aria-label="进入博客预览页"
+          >
+            <Eye size={18} strokeWidth={2} />
+            {blogLoading ? '正在进入…' : '博客预览'}
           </button>
           {blogError && (
             <div className="admin-nav-hint" role="alert">{blogError}</div>

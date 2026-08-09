@@ -1,6 +1,7 @@
 package blog
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,21 +15,33 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// AdminUserVerifier 是 admin users 表的只读访问接口（由 cmd 注入 auth.Repository
+// 实现）。blog 包不直接依赖 internal/auth，保持与 admin 用户体系隔离；
+// 仅在 login 交叉验证、admin-preview 端点身份校验两个场景使用。
+type AdminUserVerifier interface {
+	// FindAdminCredentials 返回 admin 角色用户的 id 与密码哈希。
+	// 用户不存在或非 admin 角色都返回 auth.ErrUserNotFound（接口约定返回 error）。
+	FindAdminCredentials(username string) (int64, string, error)
+}
 
 // Handler 是 FluxBlog 写作 API 入口。与 finflow/admin handler 隔离：
 // 独立 JWT、独立 repo、独立鉴权中间件。发布/撤回为 DB 内同步状态翻转，不再走 Git。
 type Handler struct {
-	repo      *Repository
-	jwtSecret string
-	assetDir  string
+	repo          *Repository
+	jwtSecret     string
+	assetDir      string
+	adminVerifier AdminUserVerifier // 可空：未注入时 blog login 不做交叉验证、admin-preview 端点 503
 }
 
-func NewHandler(repo *Repository, jwtSecret string, assetDir string) *Handler {
+func NewHandler(repo *Repository, jwtSecret string, assetDir string, adminVerifier AdminUserVerifier) *Handler {
 	return &Handler{
-		repo:      repo,
-		jwtSecret: jwtSecret,
-		assetDir:  assetDir,
+		repo:          repo,
+		jwtSecret:     jwtSecret,
+		assetDir:      assetDir,
+		adminVerifier: adminVerifier,
 	}
 }
 
@@ -64,6 +77,12 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	me := rg.Group("/me", blogAuth)
 	me.GET("/posts", h.listMyPrivatePosts)
 	me.GET("/posts/:slug", h.getMyPrivatePost)
+
+	// admin 预览读：blog JWT 鉴权 + admin 身份校验。展示所有已发布文章（公开+私有），
+	// 供 FluxBlog /blog/preview/ 页面使用。普通 blog 用户调此端点会被 403 挡住。
+	preview := rg.Group("/admin-preview", blogAuth, h.adminOnlyGuard())
+	preview.GET("/posts", h.listAllPostsForAdmin)
+	preview.GET("/posts/:slug", h.getAdminPreviewPost)
 
 	rg.GET("/drafts", blogAuth, h.listDrafts)
 	rg.POST("/drafts", blogAuth, h.createDraft)
@@ -102,22 +121,31 @@ func (h *Handler) login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// 优先按 blog_users 表登录（独立博客账号）。命中即走原有 bcrypt 校验流程。
 	u, err := h.repo.FindByUsernameActive(req.Username)
-	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
-			return
-		}
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if !u.IsEnabled {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
-		return
-	}
-	if err := h.repo.VerifyPassword(u, req.Password); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
-		return
+	if errors.Is(err, ErrUserNotFound) {
+		// blog_users 未命中：尝试 admin 凭据交叉验证（仅当注入了 adminVerifier）。
+		// 命中 users 表且 role=admin 且密码对：自动建/查 blog_users stub 后签发 blog JWT，
+		// 让 admin 用户能用同一套凭据登录 FluxBlog 预览页（/blog/preview/）。
+		u = h.tryAdminCrossLogin(req.Username, req.Password)
+		if u == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+			return
+		}
+	} else {
+		// blog_users 命中：原校验链
+		if !u.IsEnabled {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+			return
+		}
+		if err := h.repo.VerifyPassword(u, req.Password); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+			return
+		}
 	}
 	token, exp, err := GenerateToken(u, h.jwtSecret)
 	if err != nil {
@@ -132,6 +160,62 @@ func (h *Handler) login(c *gin.Context) {
 		UserID:    encodeID(u.ID),
 		Username:  u.Username,
 	})
+}
+
+// tryAdminCrossLogin 用 admin 凭据交叉登录：查 users 表中 role=admin 的同名用户，
+// 校验 bcrypt 密码；通过则查找或自动创建 blog_users stub（随机密码，admin 永不需要），
+// 返回可用于签发 blog JWT 的 *BlogUser。任何环节失败均返回 nil（不泄露具体原因，
+// 与原 login 错误一致）。
+func (h *Handler) tryAdminCrossLogin(username, password string) *BlogUser {
+	if h.adminVerifier == nil {
+		return nil
+	}
+	_, hash, err := h.adminVerifier.FindAdminCredentials(username)
+	if err != nil {
+		return nil
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		return nil
+	}
+	// 复用 admin SSO 逻辑：查找或创建 blog_users stub。stub 的随机密码 admin 永不需要。
+	u, err := h.repo.FindByUsernameActive(username)
+	if err == nil {
+		if !u.IsEnabled {
+			return nil
+		}
+		return u
+	}
+	if !errors.Is(err, ErrUserNotFound) {
+		return nil
+	}
+	pw, err := randomHex(32)
+	if err != nil {
+		return nil
+	}
+	u, err = h.repo.Create(username, pw)
+	if err != nil {
+		// 并发：同 admin 用户名已被另一请求创建 → 重查
+		if errors.Is(err, ErrUserExists) {
+			u, err = h.repo.FindByUsernameActive(username)
+			if err != nil || !u.IsEnabled {
+				return nil
+			}
+			return u
+		}
+		return nil
+	}
+	_ = h.repo.InsertAudit(nil, "admin_cross_login_create", u.Username)
+	return u
+}
+
+// randomHex 返回 n 字节的十六进制字符串（n=32 时为 64 字符）。
+// 用于为 admin 交叉登录自动创建的 blog_users stub 生成永不复用的随机密码。
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (h *Handler) refresh(c *gin.Context) {
@@ -834,4 +918,62 @@ func parseOptionalID(c *gin.Context, key string) *int64 {
 		return nil
 	}
 	return &id
+}
+
+// ==================== admin 预览 ====================
+// /admin-preview/* 供 FluxBlog /blog/preview/ 页面拉取所有已发布文章（公开+私有）。
+// 走 blogAuth（fluxblog_token cookie 或 Authorization: Bearer）解出 blogUserID，
+// 再用 adminOnlyGuard 校验该 blog user 的 username 对应 users 表的 admin 角色。
+// 普通 blog 用户调此端点直接 403，避免泄露他人 private 文章。
+
+// adminOnlyGuard 校验当前 blog 用户是否对应 admin 角色用户。
+// 实现：从 ctx 取 blogUsername（由 blogAuth 注入），查 users 表 role=admin。
+// 未注入 adminVerifier 时 503（服务端配置错误）。
+func (h *Handler) adminOnlyGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.adminVerifier == nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "admin verifier not configured"})
+			return
+		}
+		v, ok := c.Get("blogUsername")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing auth"})
+			return
+		}
+		username, _ := v.(string)
+		if username == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing username"})
+			return
+		}
+		if _, _, err := h.adminVerifier.FindAdminCredentials(username); err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// listAllPostsForAdmin 返回所有已发布文章（公开+私有）。
+func (h *Handler) listAllPostsForAdmin(c *gin.Context) {
+	posts, err := h.repo.ListAllPublished()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, posts)
+}
+
+// getAdminPreviewPost 返回单篇已发布文章（含 markdown 正文），按 slug 查询。
+func (h *Handler) getAdminPreviewPost(c *gin.Context) {
+	slug := c.Param("slug")
+	d, err := h.repo.GetPublishedBySlug(slug)
+	if err != nil {
+		if errors.Is(err, ErrDraftNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, d)
 }

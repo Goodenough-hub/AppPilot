@@ -661,6 +661,30 @@ func (r *Repository) ListPublishedPublic(projectID *int64) ([]DraftSummary, erro
 	return out, rows.Err()
 }
 
+// ListAllPublished 列出所有已发布文档（公开+私有，不限 user）。
+// 供 admin 预览使用；普通用户不可访问此路径（路由层 AdminRequired 已挡）。
+func (r *Repository) ListAllPublished() ([]DraftSummary, error) {
+	rows, err := r.db.Query(
+		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+		 WHERE d.status = $1
+		 ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
+		StatusPublished,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DraftSummary{}
+	for rows.Next() {
+		s, err := scanDraftSummary(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *s)
+	}
+	return out, rows.Err()
+}
+
 // GetPublishedPublicBySlug 取单篇公开已发布文档（含 markdown 正文）。
 // 正文从 blog_draft_versions 中 published_version 对应的快照读取，
 // 防止草稿编辑自动保存后，公开读取直接命中草稿行的新 markdown。
@@ -670,6 +694,28 @@ func (r *Repository) GetPublishedPublicBySlug(slug string) (*Draft, error) {
 			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
 			 WHERE d.slug = $1 AND d.visibility = $2 AND d.status = $3`,
 			slug, VisibilityPublic, StatusPublished,
+		).Scan(dst...)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDraftNotFound
+		}
+		return nil, err
+	}
+	if err := r.applyPublishedSnapshot(d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// GetPublishedBySlug 按 slug 取单篇已发布文档（不限 visibility/user，含 markdown 正文）。
+// 供 admin 预览使用。正文同样从 published_version 快照读取，与公开读取口径一致。
+func (r *Repository) GetPublishedBySlug(slug string) (*Draft, error) {
+	d, err := scanDraft(func(dst ...any) error {
+		return r.db.QueryRow(
+			`SELECT `+draftCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
+			 WHERE d.slug = $1 AND d.status = $2`,
+			slug, StatusPublished,
 		).Scan(dst...)
 	})
 	if err != nil {

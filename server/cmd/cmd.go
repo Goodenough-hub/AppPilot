@@ -87,8 +87,10 @@ func serve(cfg *config.Config) error {
 
 	// FluxBlog：独立博客写作 API。独立 JWT/账号/表族，与 finflow/admin 隔离。
 	// 发布/撤回为 DB 内同步状态翻转，不再提交 Git。
+	// adminVerifier 注入 auth.Repository 实现：供 blog login 交叉验证 admin 凭据、
+	// admin-preview 端点校验身份。blog 包不直接依赖 internal/auth，仍保持隔离。
 	blogRepo := blog.NewRepository(pg)
-	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, cfg.BlogAssetDir)
+	blogHandler := blog.NewHandler(blogRepo, cfg.BlogJWTSecret, cfg.BlogAssetDir, authRepo)
 	blogHandler.Register(v1.Group("/blog"))
 
 	// 定时发布后台 worker：每 60s 扫描到点的 scheduled_publish_at 草稿并提升为 published。
