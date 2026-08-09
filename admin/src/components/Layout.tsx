@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Users, Activity, BarChart3, LogOut, Menu, X, PencilLine, Eye, type LucideIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -19,6 +19,9 @@ export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [blogLoading, setBlogLoading] = useState(false)
   const [blogError, setBlogError] = useState<string | null>(null)
+  // 上次 SSO 成功时间戳。blog JWT 有效期 2h，30min 内不重复调，直接开新 tab。
+  const blogSsoAtRef = useRef<number>(0)
+  const SSO_CACHE_MS = 30 * 60 * 1000
 
   const handleLogout = () => {
     logout()
@@ -30,14 +33,22 @@ export default function Layout() {
   // 「博客写作」→ /blog/studio/；「博客预览」→ /blog/preview/。新开 tab，保留 admin 面板。
   const enterBlog = async (target: string) => {
     setBlogError(null)
+    // 30 min 内已经 SSO 过：cookie 仍然有效，跳过后端调用避免"正在进入"卡顿
+    if (Date.now() - blogSsoAtRef.current < SSO_CACHE_MS) {
+      window.open(target, '_blank', 'noopener')
+      return
+    }
     setBlogLoading(true)
     try {
       await startBlogSession()
+      blogSsoAtRef.current = Date.now()
       window.open(target, '_blank', 'noopener')
     } catch (err: any) {
-      setBlogLoading(false)
       const status = err?.response?.status
       setBlogError(status === 403 ? '博客账号已停用，请在「博客账号」页重新启用' : '进入博客失败，请稍后重试')
+    } finally {
+      // 无论成败都要重置，否则按钮永远卡在"正在进入…"
+      setBlogLoading(false)
     }
   }
 
