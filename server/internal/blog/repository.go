@@ -1105,6 +1105,7 @@ func (r *Repository) ListPublicProjectsWithCount() ([]ProjectPublic, error) {
 		 FROM blog_projects p
 		 LEFT JOIN blog_drafts d ON d.project_id = p.id AND d.visibility = 'public' AND d.status = 'published'
 		 GROUP BY p.id, p.name, p.intro, p.sort_order
+		 HAVING COUNT(d.id) > 0
 		 ORDER BY p.sort_order ASC, p.id ASC`,
 	)
 	if err != nil {
