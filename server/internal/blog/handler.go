@@ -85,34 +85,39 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	preview.GET("/posts/:slug", h.getAdminPreviewPost)
 	preview.GET("/projects", h.listAllProjectsForAdmin)
 
-	rg.GET("/drafts", blogAuth, h.listDrafts)
-	rg.POST("/drafts", blogAuth, h.createDraft)
-	rg.GET("/drafts/:id", blogAuth, h.getDraft)
-	rg.PATCH("/drafts/:id", blogAuth, h.updateDraft)
-	rg.DELETE("/drafts/:id", blogAuth, h.deleteDraft)
-	rg.GET("/drafts/:id/versions", blogAuth, h.listVersions)
-	rg.POST("/drafts/:id/versions", blogAuth, h.createCheckpoint)
-	rg.POST("/drafts/:id/versions/:version/restore", blogAuth, h.restoreVersion)
+	// Studio 写作 API：仅 admin 可访问。普通 blog 用户调任意 /drafts* 端点均 403，
+	// 因为第一版 FluxBlog Studio 是 admin 专区，普通用户只读公开博客前台。
+	studio := rg.Group("/drafts", blogAuth, h.adminOnlyGuard())
+	studio.GET("", h.listDrafts)
+	studio.POST("", h.createDraft)
+	studio.GET("/:id", h.getDraft)
+	studio.PATCH("/:id", h.updateDraft)
+	studio.DELETE("/:id", h.deleteDraft)
+	studio.GET("/:id/versions", h.listVersions)
+	studio.POST("/:id/versions", h.createCheckpoint)
+	studio.POST("/:id/versions/:version/restore", h.restoreVersion)
+	studio.POST("/:id/publish", h.publish)
+	studio.POST("/:id/unpublish", h.unpublish)
+	studio.PUT("/:id/project", h.setDraftProject)
 
-	rg.POST("/assets", blogAuth, h.uploadAsset)
-	rg.GET("/assets/:id", blogAuth, h.getAsset)
+	// 资源上传同样仅 admin
+	assetsAdmin := rg.Group("/assets", blogAuth, h.adminOnlyGuard())
+	assetsAdmin.POST("", h.uploadAsset)
+	assetsAdmin.GET("/:id", h.getAsset)
 
-	rg.POST("/drafts/:id/publish", blogAuth, h.publish)
-	rg.POST("/drafts/:id/unpublish", blogAuth, h.unpublish)
-	rg.GET("/tags", blogAuth, h.listTags)
+	// Tag 列表 + Project 管理：仅 admin
+	studioAdmin := rg.Group("", blogAuth, h.adminOnlyGuard())
+	studioAdmin.GET("/tags", h.listTags)
+	studioAdmin.POST("/projects", h.createProject)
+	studioAdmin.PATCH("/projects/:id", h.updateProject)
+	studioAdmin.DELETE("/projects/:id", h.deleteProject)
+	studioAdmin.POST("/projects/reorder", h.reorderProjects)
 
-		// Project 管理（需登录）
-		rg.POST("/projects", blogAuth, h.createProject)
-		rg.PATCH("/projects/:id", blogAuth, h.updateProject)
-		rg.DELETE("/projects/:id", blogAuth, h.deleteProject)
-		rg.POST("/projects/reorder", blogAuth, h.reorderProjects)
-		rg.PUT("/drafts/:id/project", blogAuth, h.setDraftProject)
-
-		// 公开 project 读（无需登录）
-		pubProjects := rg.Group("/projects")
-		pubProjects.GET("", h.listPublicProjects)
-		pubProjects.GET("/:id", h.getPublicProject)
-	}
+	// 公开 project 读（无需登录）
+	pubProjects := rg.Group("/projects")
+	pubProjects.GET("", h.listPublicProjects)
+	pubProjects.GET("/:id", h.getPublicProject)
+}
 
 // ==================== Auth ====================
 
@@ -271,6 +276,7 @@ func (h *Handler) me(c *gin.Context) {
 		"username":     u.Username,
 		"isEnabled":    u.IsEnabled,
 		"tokenVersion": u.TokenVersion,
+		"isAdmin":      h.isAdminUser(c),
 	})
 }
 
@@ -368,12 +374,41 @@ func (h *Handler) getMyPrivatePost(c *gin.Context) {
 // ==================== Drafts ====================
 
 func (h *Handler) listDrafts(c *gin.Context) {
-	drafts, err := h.repo.ListDrafts(blogUserID(c))
+	// admin 用户返回所有草稿（含其他用户的），普通用户只返回自己的。
+	// 复用 adminOnlyGuard 的判断逻辑：通过 adminVerifier 校验 username 对应 users 表 admin 角色。
+	var drafts []Draft
+	var err error
+	if h.isAdminUser(c) {
+		drafts, err = h.repo.ListAllDrafts()
+	} else {
+		drafts, err = h.repo.ListDrafts(blogUserID(c))
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, drafts)
+}
+
+// isAdminUser 判断当前 blog 用户是否对应 users 表的 admin 角色。
+// 与 adminOnlyGuard 同源，但不 abort；供 listDrafts 等需要分支判断的 handler 复用。
+// adminVerifier 未注入时返回 false（退化到普通用户行为）。
+func (h *Handler) isAdminUser(c *gin.Context) bool {
+	if h.adminVerifier == nil {
+		return false
+	}
+	v, ok := c.Get("blogUsername")
+	if !ok {
+		return false
+	}
+	username, _ := v.(string)
+	if username == "" {
+		return false
+	}
+	if _, _, err := h.adminVerifier.FindAdminCredentials(username); err != nil {
+		return false
+	}
+	return true
 }
 
 func (h *Handler) createDraft(c *gin.Context) {
@@ -716,12 +751,12 @@ func (h *Handler) publish(c *gin.Context) {
 		fmt.Sprintf("%s@v%d", updated.Slug, updated.Version))
 	if req.ScheduledPublishAt != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"id":                encodeID(updated.ID),
-			"status":            updated.Status,
-			"visibility":        updated.Visibility,
+			"id":                 encodeID(updated.ID),
+			"status":             updated.Status,
+			"visibility":         updated.Visibility,
 			"scheduled":          true,
 			"scheduledPublishAt": updated.ScheduledPublishAt,
-			"updatedAt":         updated.UpdatedAt,
+			"updatedAt":          updated.UpdatedAt,
 		})
 		return
 	}

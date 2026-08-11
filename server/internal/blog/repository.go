@@ -262,6 +262,27 @@ func (r *Repository) ListDrafts(userID int64) ([]Draft, error) {
 	return out, rows.Err()
 }
 
+// ListAllDrafts 返回所有用户的草稿（含已发布），供 admin 在 Studio 列表查看。
+// 不带 user_id 过滤；调用方需保证当前用户是 admin。
+func (r *Repository) ListAllDrafts() ([]Draft, error) {
+	rows, err := r.db.Query(
+		`SELECT ` + draftCols + ` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id ORDER BY d.updated_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Draft{}
+	for rows.Next() {
+		d, err := scanDraft(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) GetDraft(userID, id int64) (*Draft, error) {
 	d, err := scanDraft(func(dst ...any) error {
 		return r.db.QueryRow(
