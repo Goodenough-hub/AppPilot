@@ -15,6 +15,7 @@ import (
 	"apppilot-server/internal/db"
 	"apppilot-server/internal/finflow"
 	"apppilot-server/internal/middleware"
+	"apppilot-server/internal/typresume"
 	"apppilot-server/pkg/config"
 
 	"github.com/gin-gonic/gin"
@@ -83,6 +84,14 @@ func serve(cfg *config.Config) error {
 		v1.Group("/finflow"),
 		middleware.AuthRequired(cfg.JWTSecret),
 		middleware.AppScopeRequired("finflow"),
+	)
+
+	// TypResume：用户简历云端同步。受 typresume scope 保护，与 finflow 隔离。
+	typresumeHandler := typresume.NewHandler(pg)
+	typresumeHandler.Register(
+		v1.Group("/typresume"),
+		middleware.AuthRequired(cfg.JWTSecret),
+		middleware.AppScopeRequired("typresume"),
 	)
 
 	// FluxBlog：独立博客写作 API。独立 JWT/账号/表族，与 finflow/admin 隔离。
