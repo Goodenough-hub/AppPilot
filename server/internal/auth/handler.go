@@ -136,6 +136,9 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	if appScope == nil {
 		appScope = []string{"finflow"}
 	}
+	// Keep the "admin" pseudo-app in sync with role, same rule as Repository.Update:
+	// role=admin ⇒ scope contains "admin"; role=user ⇒ scope excludes "admin".
+	appScope = syncAdminScope(appScope, role)
 	u, err := h.repo.Create(req.Username, req.Password, role, appScope)
 	if err != nil {
 		if errors.Is(err, ErrUserExists) {

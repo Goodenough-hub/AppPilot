@@ -1,79 +1,69 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { UserPlus, Search } from 'lucide-react'
 import {
-  createUser, deleteUser, getStats, listApps, listUsers,
+  deleteUser, getStats, listUsers,
   type AdminStats, type User
 } from '../api/admin'
+import { SUPPORTED_APPS } from '../lib/apps'
 import StatCard from '../components/ui/StatCard'
+import UserFormDrawer from '../components/UserFormDrawer'
 
-interface Form {
-  username: string
-  password: string
-  role: 'user' | 'admin'
-}
-
-const initialForm: Form = { username: '', password: '', role: 'user' }
+type DrawerMode = 'create' | 'edit'
 
 export default function UsersPage() {
-  const [apps, setApps] = useState<string[]>([])
-  const [app, setApp] = useState<string>('')
   const [users, setUsers] = useState<User[]>([])
   const [stats, setStats] = useState<AdminStats | null>(null)
-  const [form, setForm] = useState<Form>(initialForm)
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [appFilter, setAppFilter] = useState<string>('') // '' = 全部
+  const [search, setSearch] = useState('')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerMode, setDrawerMode] = useState<DrawerMode>('create')
+  const [editingUser, setEditingUser] = useState<User | undefined>(undefined)
   const [newUserId, setNewUserId] = useState<string | null>(null)
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    listApps()
-      .then(list => {
-        setApps(list)
-        if (list.length > 0 && !list.includes(app)) {
-          setApp(list[0])
-        }
-      })
-      .catch(err => setError(err.response?.data?.error || '加载应用列表失败'))
-  }, [])
-
-  useEffect(() => {
-    if (!app) return
-    Promise.all([listUsers(app), getStats(app)])
-      .then(([u, s]) => { setUsers(u); setStats(s) })
-      .catch(err => setError(err.response?.data?.error || '加载失败'))
-  }, [app])
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!app) {
-      setError('请先选择应用')
-      return
-    }
-    setError('')
-    setLoading(true)
+  const refresh = async () => {
     try {
-      const created = await createUser({
-        username: form.username,
-        password: form.password,
-        role: form.role,
-        appScope: [app]
-      })
-      setForm(initialForm)
-      const [u, s] = await Promise.all([listUsers(app), getStats(app)])
+      const [u, s] = await Promise.all([listUsers(), getStats()])
       setUsers(u); setStats(s)
-      toast.success(`已创建用户 ${form.username}`)
-      if (created?.id) {
-        setNewUserId(String(created.id))
-        setTimeout(() => setNewUserId(null), 2000)
-      }
-    } catch (err: any) {
-      const msg = err.response?.data?.error || '创建失败'
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '加载失败'
       setError(msg)
-      toast.error(msg)
-    } finally {
-      setLoading(false)
     }
+  }
+
+  useEffect(() => { refresh() }, [])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return users.filter(u => {
+      if (appFilter && !u.appScope.includes(appFilter)) return false
+      if (q && !u.username.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [users, appFilter, search])
+
+  const openCreate = () => {
+    setDrawerMode('create')
+    setEditingUser(undefined)
+    setDrawerOpen(true)
+  }
+
+  const openEdit = (u: User) => {
+    setDrawerMode('edit')
+    setEditingUser(u)
+    setDrawerOpen(true)
+  }
+
+  const onSaved = async (saved: User) => {
+    setDrawerOpen(false)
+    if (drawerMode === 'create' && saved?.id) {
+      setNewUserId(String(saved.id))
+      setTimeout(() => setNewUserId(null), 2000)
+    }
+    await refresh()
   }
 
   const remove = async (id: string, username: string) => {
@@ -82,23 +72,21 @@ export default function UsersPage() {
     try {
       await deleteUser(id)
       toast.success(`已删除用户 ${username}`)
-      // 等淡出动画结束再移除行
       setTimeout(async () => {
-        const [u, s] = await Promise.all([listUsers(app), getStats(app)])
-        setUsers(u); setStats(s)
+        await refresh()
         setLeavingIds(prev => {
           const next = new Set(prev)
           next.delete(id)
           return next
         })
       }, 250)
-    } catch (err: any) {
+    } catch (err: unknown) {
       setLeavingIds(prev => {
         const next = new Set(prev)
         next.delete(id)
         return next
       })
-      const msg = err.response?.data?.error || '删除失败'
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '删除失败'
       setError(msg)
       toast.error(msg)
     }
@@ -111,22 +99,23 @@ export default function UsersPage() {
     { label: '管理员', value: stats.admins }
   ] : []
 
+  const filterChips = [
+    { code: '', name: '全部' },
+    ...SUPPORTED_APPS,
+  ]
+
   return (
     <div className="animate-fade-in-up">
       <header className="admin-page-header">
         <div>
           <h1 style={{ fontSize: 32 }}>用户管理</h1>
-          <p className="subtitle">管理接入应用的用户账户</p>
+          <p className="subtitle">一个账号可同时授权多个应用</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>应用</span>
-          <select
-            value={app}
-            onChange={e => setApp(e.target.value)}
-            style={{ width: 160 }}
-          >
-            {apps.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <button className="btn-primary" onClick={openCreate} type="button" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <UserPlus size={16} />
+            新建用户
+          </button>
         </div>
       </header>
 
@@ -155,69 +144,32 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="glass-panel animate-fade-in-up stagger-2" style={{ marginBottom: 32, padding: 32 }}>
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 20, margin: 0, marginBottom: 8 }}>创建新用户</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-            新用户将自动绑定到当前应用「<span style={{color: 'var(--primary)'}}>{app || '—'}</span>」
-          </p>
-        </div>
-        <form onSubmit={submit}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 24,
-            marginBottom: 24
-          }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>用户名</label>
-              <input
-                value={form.username}
-                onChange={e => setForm({ ...form, username: e.target.value })}
-                required
-                minLength={3}
-                placeholder="至少 3 个字符"
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>密码</label>
-              <input
-                type="password"
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-                required
-                minLength={6}
-                placeholder="至少 6 个字符"
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>角色</label>
-              <select
-                value={form.role}
-                onChange={e => setForm({ ...form, role: e.target.value as 'user' | 'admin' })}
+      <div className="glass-panel animate-fade-in-up stagger-3" style={{ overflow: 'hidden', marginTop: 24 }}>
+        <div style={{ padding: '20px 32px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid var(--border-light)' }}>
+          <div className="app-filter-chips">
+            {filterChips.map(c => (
+              <button
+                key={c.code || 'all'}
+                type="button"
+                className={`chip${appFilter === c.code ? ' active' : ''}`}
+                onClick={() => setAppFilter(c.code)}
               >
-                <option value="user">用户</option>
-                <option value="admin">管理员</option>
-              </select>
-            </div>
+                {c.name}
+              </button>
+            ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              type="submit"
-              className="primary"
-              disabled={loading || !app}
-              title={app ? `自动绑定应用：${app}` : '请先选择应用'}
-              style={{ minWidth: 140 }}
-            >
-              {loading ? '创建中...' : '创建用户'}
-            </button>
+          <div className="users-search">
+            <Search size={14} className="users-search-icon" />
+            <input
+              className="form-input users-search-input"
+              placeholder="搜索用户名…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
-        </form>
-      </div>
-
-      <div className="glass-panel animate-fade-in-up stagger-3" style={{ overflow: 'hidden' }}>
-        <div style={{ padding: '24px 32px' }}>
-          <h2 style={{ fontSize: 20, margin: 0 }}>{app ? `${app} 用户` : '用户列表'}</h2>
+          <div style={{ marginLeft: 'auto', color: 'var(--text-tertiary)', fontSize: 13 }}>
+            共 {filtered.length} / {users.length}
+          </div>
         </div>
         <div className="table-container">
           <table className="responsive-table">
@@ -225,6 +177,7 @@ export default function UsersPage() {
               <tr>
                 <th>用户名</th>
                 <th>角色</th>
+                <th>应用授权</th>
                 <th style={{ textAlign: 'right' }}>交易数</th>
                 <th>最近活跃</th>
                 <th>创建时间</th>
@@ -232,49 +185,111 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map(u => {
+              {filtered.map(u => {
                 const isNew = u.id === newUserId
-                const rowClass = [
-                  isNew ? 'animate-fade-in-up' : ''
-                ].filter(Boolean).join(' ')
+                const rowClass = [isNew ? 'animate-fade-in-up' : ''].filter(Boolean).join(' ')
                 return (
-                <tr key={u.id} className={rowClass} style={{ opacity: leavingIds.has(u.id) ? 0.3 : 1, transition: 'opacity 0.2s' }}>
-                  <td data-label="用户名" style={{ fontWeight: 500 }}>{u.username}</td>
-                  <td data-label="角色">
-                    <span className={u.role === 'admin' ? 'badge badge-admin' : 'badge badge-user'}>
-                      {u.role === 'admin' ? '管理员' : '用户'}
-                    </span>
-                  </td>
-                  <td data-label="交易数" style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>
-                    {u.stats?.transactionCount ?? 0}
-                  </td>
-                  <td data-label="最近活跃" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
-                    {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
-                  </td>
-                  <td data-label="创建时间" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
-                    {new Date(u.createdAt).toLocaleString('zh-CN')}
-                  </td>
-                  <td data-label="操作" className="actions" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Link to={`/admin/users/${u.id}`} className="pill-link" style={{ marginRight: 16 }}>查看</Link>
-                    <button
-                      className="danger"
-                      style={{ padding: '5px 14px', fontSize: 12 }}
-                      onClick={() => remove(u.id, u.username)}
-                      disabled={leavingIds.has(u.id)}
-                    >删除</button>
-                  </td>
-                </tr>
+                  <tr key={u.id} className={rowClass} style={{ opacity: leavingIds.has(u.id) ? 0.3 : 1, transition: 'opacity 0.2s' }}>
+                    <td data-label="用户名" style={{ fontWeight: 500 }}>{u.username}</td>
+                    <td data-label="角色">
+                      <span className={u.role === 'admin' ? 'badge badge-admin' : 'badge badge-user'}>
+                        {u.role === 'admin' ? '管理员' : '用户'}
+                      </span>
+                    </td>
+                    <td data-label="应用授权">
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {SUPPORTED_APPS.map(a => {
+                          const granted = u.appScope.includes(a.code)
+                          return (
+                            <span
+                              key={a.code}
+                              className="badge"
+                              style={{
+                                opacity: granted ? 1 : 0.32,
+                                borderStyle: granted ? 'solid' : 'dashed',
+                              }}
+                              title={granted ? `已授权访问 ${a.name}` : `未授权 ${a.name}`}
+                            >
+                              {a.name}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </td>
+                    <td data-label="交易数" style={{ textAlign: 'right', fontFamily: 'Outfit, sans-serif' }}>
+                      {u.stats?.transactionCount ?? 0}
+                    </td>
+                    <td data-label="最近活跃" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                      {u.stats?.lastActiveAt ? new Date(u.stats.lastActiveAt).toLocaleString('zh-CN') : '—'}
+                    </td>
+                    <td data-label="创建时间" style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                      {new Date(u.createdAt).toLocaleString('zh-CN')}
+                    </td>
+                    <td data-label="操作" className="actions" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <Link to={`/admin/users/${u.id}`} className="pill-link" style={{ marginRight: 12 }}>查看</Link>
+                      <button
+                        className="pill-link"
+                        style={{ marginRight: 12, background: 'none', border: 'none', cursor: 'pointer' }}
+                        onClick={() => openEdit(u)}
+                      >编辑</button>
+                      <button
+                        className="danger"
+                        style={{ padding: '5px 14px', fontSize: 12 }}
+                        onClick={() => remove(u.id, u.username)}
+                        disabled={leavingIds.has(u.id)}
+                      >删除</button>
+                    </td>
+                  </tr>
                 )
               })}
-              {users.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)', fontSize: 14 }}>该应用暂无用户</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)', fontSize: 14 }}>
+                    {users.length === 0 ? '暂无用户' : '无符合筛选的用户'}
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      <UserFormDrawer
+        open={drawerOpen}
+        mode={drawerMode}
+        user={editingUser}
+        onClose={() => setDrawerOpen(false)}
+        onSaved={onSaved}
+      />
+
+      <style>{`
+        .app-filter-chips { display: inline-flex; gap: 6px; align-items: center; }
+        .chip {
+          padding: 6px 14px;
+          border-radius: 999px;
+          border: 1px solid var(--border-light);
+          background: transparent;
+          color: var(--text-secondary);
+          font-size: 13px;
+          cursor: pointer;
+          transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .chip:hover { color: var(--text-primary); border-color: var(--border-glow); }
+        .chip.active {
+          background: var(--primary-gradient, linear-gradient(135deg,#6366F1,#8B5CF6));
+          color: #fff;
+          border-color: transparent;
+          box-shadow: var(--shadow-glow);
+        }
+        .users-search { position: relative; display: inline-flex; align-items: center; min-width: 200px; }
+        .users-search-icon {
+          position: absolute;
+          left: 12px;
+          color: var(--text-tertiary);
+          pointer-events: none;
+        }
+        .users-search-input { padding-left: 34px; min-width: 200px; }
+      `}</style>
     </div>
   )
 }

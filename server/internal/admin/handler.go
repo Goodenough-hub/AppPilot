@@ -42,6 +42,7 @@ func (h *Handler) Register(rg *gin.RouterGroup, middlewares ...gin.HandlerFunc) 
 		g.GET("/apps", h.listApps)
 		g.GET("/users", h.listUsers)
 		g.POST("/users", h.authH.CreateUser) // 复用 auth.Handler.CreateUser
+		g.PATCH("/users/:id", h.updateUser)
 		g.DELETE("/users/:id", h.deleteUser)
 		g.GET("/users/:id/transactions", h.listUserTransactions)
 		g.GET("/users/:id/categories", h.listUserCategories)
@@ -164,14 +165,12 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		return
 	}
 	if u.Role == "admin" {
-		admins, _ := h.authRepo.List()
-		adminCount := 0
-		for _, a := range admins {
-			if a.Role == "admin" {
-				adminCount++
-			}
+		n, err := h.countAdmins()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
-		if adminCount <= 1 {
+		if n <= 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the last admin"})
 			return
 		}
@@ -181,6 +180,85 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// updateUser applies a partial patch. Body: UpdateUserRequest (role/appScope/password).
+// Refuses to demote the last admin. Repository.Update guarantees the "admin" pseudo-app
+// stays in sync with role, so callers never need to include it in appScope.
+func (h *Handler) updateUser(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req auth.UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Role != nil {
+		normalized := auth.NormalizeRole(*req.Role)
+		req.Role = &normalized
+		if normalized != "admin" {
+			target, err := h.authRepo.FindByID(id)
+			if err != nil {
+				if errors.Is(err, auth.ErrUserNotFound) {
+					c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+					return
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			if target.Role == "admin" {
+				n, err := h.countAdmins()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				if n <= 1 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "cannot demote the last admin"})
+					return
+				}
+			}
+		}
+	}
+	u, err := h.authRepo.Update(id, auth.UserPatch{
+		Role:     req.Role,
+		AppScope: req.AppScope,
+		Password: req.Password,
+	})
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":        strconv.FormatInt(u.ID, 10),
+		"username":  u.Username,
+		"role":      u.Role,
+		"appScope":  u.AppScope,
+		"avatar":    u.Avatar,
+		"createdAt": u.CreatedAt,
+		"updatedAt": u.UpdatedAt,
+	})
+}
+
+// countAdmins returns how many users currently have role == "admin".
+// Shared by deleteUser (block last-admin delete) and updateUser (block last-admin demote).
+func (h *Handler) countAdmins() (int, error) {
+	users, err := h.authRepo.List()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, u := range users {
+		if u.Role == "admin" {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (h *Handler) listUserTransactions(c *gin.Context) {

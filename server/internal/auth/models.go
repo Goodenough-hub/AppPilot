@@ -32,6 +32,16 @@ type UpdateAvatarRequest struct {
 	Avatar string `json:"avatar" binding:"required"`
 }
 
+// UpdateUserRequest is used by admin PATCH /admin/users/:id.
+// All fields are pointers so we can distinguish "omitted" from "explicit empty":
+//   - Role/AppScope: nil = don't change; non-nil = replace.
+//   - Password: nil = don't change; non-nil non-empty = reset (bcrypt).
+type UpdateUserRequest struct {
+	Role     *string   `json:"role"`
+	AppScope *[]string `json:"appScope"`
+	Password *string   `json:"password" binding:"omitempty,min=6"`
+}
+
 type TokenResponse struct {
 	Token     string   `json:"token"`
 	ExpiresAt int64    `json:"expiresAt"`

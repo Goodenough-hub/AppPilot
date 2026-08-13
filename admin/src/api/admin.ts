@@ -86,6 +86,20 @@ export async function deleteUser(id: string): Promise<void> {
   await apiClient.delete(`/admin/users/${id}`)
 }
 
+// UpdateUserRequest maps 1:1 to backend PATCH /admin/users/:id body.
+// Any omitted field is left unchanged; appScope semantics are full replacement.
+// The "admin" pseudo-scope element is managed server-side based on role.
+export interface UpdateUserRequest {
+  role?: 'user' | 'admin'
+  appScope?: string[]
+  password?: string
+}
+
+export async function updateUser(id: string, req: UpdateUserRequest): Promise<User> {
+  const { data } = await apiClient.patch<User>(`/admin/users/${id}`, req)
+  return data
+}
+
 export async function getUserTransactions(id: string): Promise<Transaction[]> {
   const { data } = await apiClient.get<Transaction[]>(`/admin/users/${id}/transactions`)
   return data
