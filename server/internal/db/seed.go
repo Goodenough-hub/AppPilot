@@ -132,7 +132,10 @@ var incomeTree = []seedNode{
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 103},
 	}},
 	{Name: "兼职", Icon: "💼", Color: "#8B5CF6", Order: 2},
-	{Name: "其他收入", Icon: "⋯", Color: "#6B7280", Order: 3},
+	{Name: "退款", Icon: "↩️", Color: "#10B981", Order: 3},
+	{Name: "报销", Icon: "🧾", Color: "#3B82F6", Order: 4},
+	{Name: "他人转入", Icon: "🤝", Color: "#8B5CF6", Order: 5},
+	{Name: "其他收入", Icon: "⋯", Color: "#6B7280", Order: 6},
 }
 
 type defaultAccount struct {
@@ -741,6 +744,77 @@ func migrateMoveWeixinReadSubscription(db *sql.DB) error {
 		); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("update 数字服务·其他 sort_order: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateIncomeAddRefundReimburseTransferIn 在收入分类中于「其他收入」之前
+// 补齐 退款/报销/他人转入 三个顶级分类（sort_order 3/4/5），并把「其他收入」
+// 的 sort_order 从 3 挪到 6。
+// 幂等 gate：以「退款」是否存在整体判断，存在则跳过（三项一起判）。
+func migrateIncomeAddRefundReimburseTransferIn(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT DISTINCT user_id FROM categories WHERE type = 'income' AND parent_id IS NULL`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return err
+		}
+		userIDs = append(userIDs, uid)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	newNodes := []seedNode{
+		{Name: "退款", Icon: "↩️", Color: "#10B981", Order: 3},
+		{Name: "报销", Icon: "🧾", Color: "#3B82F6", Order: 4},
+		{Name: "他人转入", Icon: "🤝", Color: "#8B5CF6", Order: 5},
+	}
+
+	for _, uid := range userIDs {
+		var exists bool
+		if err := db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM categories
+			 WHERE user_id = $1 AND name = '退款' AND type = 'income' AND parent_id IS NULL)`,
+			uid,
+		).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`UPDATE categories SET sort_order = 6
+			 WHERE user_id = $1 AND name = '其他收入' AND type = 'income' AND parent_id IS NULL`,
+			uid,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("update 其他收入 sort_order: %w", err)
+		}
+		for _, n := range newNodes {
+			if _, err := tx.Exec(
+				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
+				 VALUES ($1, $2, 'income', $3, $4, $5, TRUE, NULL)`,
+				uid, n.Name, n.Icon, n.Color, n.Order,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("insert income %s: %w", n.Name, err)
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			return err

@@ -210,6 +210,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateMoveWeixinReadSubscription(db); err != nil {
 		return err
 	}
+	// 业务迁移：收入分类补齐 退款/报销/他人转入
+	if err := migrateIncomeAddRefundReimburseTransferIn(db); err != nil {
+		return err
+	}
 	// 管理后台页面分析：前端埋点事件表
 	if _, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS analytics_events (

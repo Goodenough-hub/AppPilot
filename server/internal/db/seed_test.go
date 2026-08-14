@@ -173,6 +173,26 @@ func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
 	assertChain(t, subs, "抖音", "外卖")
 }
 
+// TestIncomeTreeHasRefundReimburseTransferIn 校验收入顶级分类含
+// 退款/报销/他人转入，且顺序为 工资→投资→兼职→退款→报销→他人转入→其他收入。
+func TestIncomeTreeHasRefundReimburseTransferIn(t *testing.T) {
+	names := make([]string, len(incomeTree))
+	orderByName := map[string]int{}
+	for i, c := range incomeTree {
+		names[i] = c.Name
+		orderByName[c.Name] = c.Order
+	}
+	want := []string{"工资", "投资", "兼职", "退款", "报销", "他人转入", "其他收入"}
+	for i, w := range want {
+		if i >= len(names) || names[i] != w {
+			t.Errorf("incomeTree[%d] 期望 %q，实际 %v", i, w, names)
+		}
+		if orderByName[w] != i {
+			t.Errorf("%q sort_order 期望 %d，实际 %d", w, i, orderByName[w])
+		}
+	}
+}
+
 func TestTripGroupsSeed(t *testing.T) {
 	if len(tripGroups) == 0 {
 		t.Fatal("tripGroups 为空")
