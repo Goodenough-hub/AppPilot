@@ -34,10 +34,10 @@ var expenseTree = []seedNode{
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
 	}},
 	{Name: "购物", Icon: "🛍️", Color: "#8B5CF6", Order: 2, Children: []seedNode{
-		{Name: "京东", Icon: "📦", Color: "#EF4444", Order: 100},
-		{Name: "淘宝", Icon: "🛍️", Color: "#F59E0B", Order: 101},
-		{Name: "拼多多", Icon: "🛒", Color: "#EF4444", Order: 102},
-		{Name: "抖音", Icon: "🎵", Color: "#6B7280", Order: 103},
+		{Name: "京东", Icon: "brand:jd", Color: "#E1251B", Order: 100},
+		{Name: "淘宝", Icon: "brand:taobao", Color: "#FF4200", Order: 101},
+		{Name: "拼多多", Icon: "brand:pinduoduo", Color: "#E02E24", Order: 102},
+		{Name: "抖音", Icon: "brand:douyin", Color: "#000000", Order: 103},
 		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 104},
 		{Name: "线下购物", Icon: "🏬", Color: "#8B5CF6", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
@@ -58,23 +58,23 @@ var expenseTree = []seedNode{
 	}},
 	{Name: "娱乐", Icon: "🎮", Color: "#F59E0B", Order: 5, Children: []seedNode{
 		{Name: "游戏", Icon: "🎮", Color: "#F59E0B", Order: 100, Children: []seedNode{
-			{Name: "王者荣耀", Icon: "👑", Color: "#F59E0B", Order: 201},
-			{Name: "和平精英", Icon: "🎯", Color: "#10B981", Order: 202},
-			{Name: "原神", Icon: "✨", Color: "#3B82F6", Order: 203},
-			{Name: "Steam", Icon: "🔥", Color: "#EF4444", Order: 204},
+			{Name: "王者荣耀", Icon: "brand:wangzhe", Color: "#B99154", Order: 201},
+			{Name: "和平精英", Icon: "brand:hepingjy", Color: "#3E5C6E", Order: 202},
+			{Name: "原神", Icon: "brand:yuanshen", Color: "#E9BC5F", Order: 203},
+			{Name: "Steam", Icon: "brand:steam", Color: "#1B2838", Order: 204},
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 205},
 		}},
 		{Name: "影视", Icon: "🎬", Color: "#8B5CF6", Order: 200, Children: []seedNode{
-			{Name: "腾讯视频", Icon: "📺", Color: "#10B981", Order: 301},
-			{Name: "B站", Icon: "▶️", Color: "#EF4444", Order: 302},
-			{Name: "爱奇艺", Icon: "🎬", Color: "#10B981", Order: 303},
+			{Name: "腾讯视频", Icon: "brand:tencentvid", Color: "#FF6022", Order: 301},
+			{Name: "B站", Icon: "brand:bilibili", Color: "#00A1D6", Order: 302},
+			{Name: "爱奇艺", Icon: "brand:iqiyi", Color: "#00BE06", Order: 303},
 			{Name: "影院", Icon: "🎟️", Color: "#F59E0B", Order: 304},
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 305},
 		}},
 		{Name: "音乐", Icon: "🎵", Color: "#06B6D4", Order: 300, Children: []seedNode{
-			{Name: "Apple Music", Icon: "🎵", Color: "#EF4444", Order: 401},
-			{Name: "网易云音乐", Icon: "🎙️", Color: "#EF4444", Order: 402},
-			{Name: "QQ音乐", Icon: "🎶", Color: "#3B82F6", Order: 403},
+			{Name: "Apple Music", Icon: "brand:applemusic", Color: "#FA243C", Order: 401},
+			{Name: "网易云音乐", Icon: "brand:neteasemus", Color: "#C20C0C", Order: 402},
+			{Name: "QQ音乐", Icon: "brand:qqmusic", Color: "#31C27C", Order: 403},
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 404},
 		}},
 		{Name: "健身", Icon: "🏃", Color: "#10B981", Order: 400, Children: []seedNode{
@@ -87,10 +87,10 @@ var expenseTree = []seedNode{
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 607},
 		}},
 		{Name: "网盘", Icon: "☁️", Color: "#3B82F6", Order: 500, Children: []seedNode{
-			{Name: "百度网盘", Icon: "☁️", Color: "#3B82F6", Order: 501},
-			{Name: "阿里网盘", Icon: "☁️", Color: "#F59E0B", Order: 502},
-			{Name: "天翼网盘", Icon: "☁️", Color: "#EF4444", Order: 503},
-			{Name: "夸克网盘", Icon: "☁️", Color: "#8B5CF6", Order: 504},
+			{Name: "百度网盘", Icon: "brand:baiduyun", Color: "#06A7FF", Order: 501},
+			{Name: "阿里网盘", Icon: "brand:aliyunpan", Color: "#FF6A00", Order: 502},
+			{Name: "天翼网盘", Icon: "brand:tianyipan", Color: "#EA1113", Order: 503},
+			{Name: "夸克网盘", Icon: "brand:quarkpan", Color: "#4A90FF", Order: 504},
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 505},
 		}},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 600},
@@ -818,6 +818,52 @@ func migrateIncomeAddRefundReimburseTransferIn(db *sql.DB) error {
 		}
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// categoryBrandRewrites 是"分类名 → (brand icon, 品牌色)"的映射，
+// 用于把老用户库里同名平台子分类的 emoji icon 升级为品牌 icon + 品牌色。
+// 与前端 src/utils/categoryBrand.ts 的 CATEGORY_NAME_TO_BRAND 保持一致。
+var categoryBrandRewrites = []struct {
+	Name  string
+	Icon  string
+	Color string
+}{
+	{"京东", "brand:jd", "#E1251B"},
+	{"淘宝", "brand:taobao", "#FF4200"},
+	{"拼多多", "brand:pinduoduo", "#E02E24"},
+	{"抖音", "brand:douyin", "#000000"},
+	{"王者荣耀", "brand:wangzhe", "#B99154"},
+	{"和平精英", "brand:hepingjy", "#3E5C6E"},
+	{"原神", "brand:yuanshen", "#E9BC5F"},
+	{"Steam", "brand:steam", "#1B2838"},
+	{"腾讯视频", "brand:tencentvid", "#FF6022"},
+	{"B站", "brand:bilibili", "#00A1D6"},
+	{"爱奇艺", "brand:iqiyi", "#00BE06"},
+	{"Apple Music", "brand:applemusic", "#FA243C"},
+	{"网易云音乐", "brand:neteasemus", "#C20C0C"},
+	{"QQ音乐", "brand:qqmusic", "#31C27C"},
+	{"百度网盘", "brand:baiduyun", "#06A7FF"},
+	{"阿里网盘", "brand:aliyunpan", "#FF6A00"},
+	{"天翼网盘", "brand:tianyipan", "#EA1113"},
+	{"夸克网盘", "brand:quarkpan", "#4A90FF"},
+}
+
+// migrateCategoryIconsToBrand 把老用户库里"平台子分类"的 icon 从 emoji 升级为
+// 品牌 slug（如 京东.icon 从 📦 → brand:jd），并同步色值到官方品牌色。
+// 只更新 icon 仍以 emoji 存储的行（NOT LIKE 'brand:%'），已是品牌 icon 的行跳过，
+// 天然幂等；用户已自改 icon 的行也保留其自定义。
+func migrateCategoryIconsToBrand(db *sql.DB) error {
+	for _, r := range categoryBrandRewrites {
+		if _, err := db.Exec(
+			`UPDATE categories
+			 SET icon = $1, color_hex = $2
+			 WHERE name = $3 AND icon NOT LIKE 'brand:%'`,
+			r.Icon, r.Color, r.Name,
+		); err != nil {
+			return fmt.Errorf("rewrite icon for %s: %w", r.Name, err)
 		}
 	}
 	return nil

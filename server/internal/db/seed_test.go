@@ -193,6 +193,50 @@ func TestIncomeTreeHasRefundReimburseTransferIn(t *testing.T) {
 	}
 }
 
+// TestPlatformCategoriesUseBrandIcon 校验 seed 里的平台子分类 icon 已改为 brand: 前缀，
+// 且 categoryBrandRewrites 对应表覆盖 seed 中所有 brand: 分类（前后端映射一致的兜底）。
+func TestPlatformCategoriesUseBrandIcon(t *testing.T) {
+	wantBrand := map[string]string{
+		"京东": "brand:jd", "淘宝": "brand:taobao", "拼多多": "brand:pinduoduo", "抖音": "brand:douyin",
+		"王者荣耀": "brand:wangzhe", "和平精英": "brand:hepingjy", "原神": "brand:yuanshen", "Steam": "brand:steam",
+		"腾讯视频": "brand:tencentvid", "B站": "brand:bilibili", "爱奇艺": "brand:iqiyi",
+		"Apple Music": "brand:applemusic", "网易云音乐": "brand:neteasemus", "QQ音乐": "brand:qqmusic",
+		"百度网盘": "brand:baiduyun", "阿里网盘": "brand:aliyunpan", "天翼网盘": "brand:tianyipan", "夸克网盘": "brand:quarkpan",
+	}
+
+	seen := map[string]string{}
+	var walk func([]seedNode)
+	walk = func(ns []seedNode) {
+		for _, n := range ns {
+			if wanted, ok := wantBrand[n.Name]; ok {
+				seen[n.Name] = n.Icon
+				if n.Icon != wanted {
+					t.Errorf("seed 中 %q 的 icon 期望 %q，实际 %q", n.Name, wanted, n.Icon)
+				}
+			}
+			walk(n.Children)
+		}
+	}
+	walk(expenseTree)
+
+	for name := range wantBrand {
+		if _, ok := seen[name]; !ok {
+			t.Errorf("expenseTree 中未找到平台子分类 %q", name)
+		}
+	}
+
+	// 迁移映射表必须覆盖 seed 里所有 brand 分类（前后端一致的兜底）
+	rewriteByName := map[string]string{}
+	for _, r := range categoryBrandRewrites {
+		rewriteByName[r.Name] = r.Icon
+	}
+	for name, icon := range wantBrand {
+		if rewriteByName[name] != icon {
+			t.Errorf("categoryBrandRewrites 缺 %q → %q（实际 %q）", name, icon, rewriteByName[name])
+		}
+	}
+}
+
 func TestTripGroupsSeed(t *testing.T) {
 	if len(tripGroups) == 0 {
 		t.Fatal("tripGroups 为空")

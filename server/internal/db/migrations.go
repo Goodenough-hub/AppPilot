@@ -214,6 +214,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateIncomeAddRefundReimburseTransferIn(db); err != nil {
 		return err
 	}
+	// 业务迁移：平台子分类 icon 从 emoji 升级为品牌 slug（brand:<slug>）
+	if err := migrateCategoryIconsToBrand(db); err != nil {
+		return err
+	}
 	// 管理后台页面分析：前端埋点事件表
 	if _, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS analytics_events (
