@@ -136,3 +136,59 @@ func TestHandlerRemoveNotFound(t *testing.T) {
 		t.Fatalf("expected 404 for missing id, got %d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandlerExportImport(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 先创建 2 条
+	doJSON(r, "POST", "/hub/items", map[string]any{"type": "bookmark", "title": "E1"})
+	doJSON(r, "POST", "/hub/items", map[string]any{"type": "prompt", "title": "E2"})
+
+	// export
+	w := doJSON(r, "GET", "/hub/export", nil)
+	if w.Code != 200 {
+		t.Fatalf("export code=%d", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("export content-type=%q", got)
+	}
+	var dump []Item
+	if err := json.Unmarshal(w.Body.Bytes(), &dump); err != nil {
+		t.Fatalf("export unmarshal: %v", err)
+	}
+	if len(dump) != 2 {
+		t.Fatalf("dump len=%d", len(dump))
+	}
+
+	// import replace with different data
+	w = doJSON(r, "POST", "/hub/import?mode=replace", []map[string]any{
+		{"type": "skill", "title": "I1"},
+	})
+	if w.Code != 200 {
+		t.Fatalf("import code=%d body=%s", w.Code, w.Body.String())
+	}
+	w = doJSON(r, "GET", "/hub/items", nil)
+	var items []Item
+	_ = json.Unmarshal(w.Body.Bytes(), &items)
+	if len(items) != 1 || items[0].Title != "I1" {
+		t.Fatalf("after replace: %+v", items)
+	}
+}
+
+func TestHandlerImportInvalidMode(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "POST", "/hub/import?mode=merge_replace", []map[string]any{
+		{"type": "bookmark", "title": "x"},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid mode, got %d", w.Code)
+	}
+}
+
+func TestHandlerImportRejectsEmptyReplace(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "POST", "/hub/import?mode=replace", []map[string]any{})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty replace, got %d body=%s", w.Code, w.Body.String())
+	}
+}

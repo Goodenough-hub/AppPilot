@@ -22,7 +22,8 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.POST("/items", h.create)
 	rg.PATCH("/items/:id", h.update)
 	rg.DELETE("/items/:id", h.remove)
-	// Export/Import 在 Task 6 添加
+	rg.GET("/export", h.export)
+	rg.POST("/import", h.importBatch)
 }
 
 func userIDOf(c *gin.Context) int64 {
@@ -139,4 +140,46 @@ func (h *Handler) remove(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) export(c *gin.Context) {
+	items, err := h.repo.ExportAll(userIDOf(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// 附件下载
+	c.Header("Content-Disposition", `attachment; filename="hub-export.json"`)
+	c.JSON(http.StatusOK, items)
+}
+
+func (h *Handler) importBatch(c *gin.Context) {
+	mode := c.DefaultQuery("mode", "merge")
+	if mode != "merge" && mode != "replace" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be merge or replace"})
+		return
+	}
+	var items []Item
+	if err := c.ShouldBindJSON(&items); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// replace 模式必须至少 1 条，防止空 payload 静默清空数据（与 repository 双重保险）
+	if mode == "replace" && len(items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replace mode requires non-empty items"})
+		return
+	}
+	// 逐条校验；merge 允许 id 已存在
+	for i := range items {
+		if err := items[i].Validate(); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "index": i})
+			return
+		}
+	}
+	n, err := h.repo.ImportBatch(userIDOf(c), items, mode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected": n, "mode": mode})
 }
