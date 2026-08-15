@@ -145,3 +145,72 @@ FROM hub_items WHERE user_id = $1 AND id = $2`, userID, id)
 	it.Tags = []string(tags)
 	return &it, nil
 }
+
+// ExportAll 返回该 user 的全量条目（顺序等同 List）。
+func (r *Repository) ExportAll(userID int64) ([]Item, error) {
+	return r.List(userID)
+}
+
+// ImportBatch 按 mode 导入：
+// - "merge"：按 ID 冲突则 UPDATE，无则 INSERT。id=0 视为新条目。
+// - "replace"：事务内先 DELETE user scope 全部，再全量 INSERT（忽略传入 id）。
+// 返回受影响行数（merge 时是 update+insert 之和；replace 时是 insert 数）。
+func (r *Repository) ImportBatch(userID int64, items []Item, mode string) (int, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	if mode == "replace" {
+		if _, err := tx.Exec(`DELETE FROM hub_items WHERE user_id = $1`, userID); err != nil {
+			return 0, err
+		}
+		for i := range items {
+			it := &items[i]
+			tags := it.Tags
+			if tags == nil {
+				tags = []string{}
+			}
+			if _, err := tx.Exec(`
+INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite)
+VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite); err != nil {
+				return 0, err
+			}
+		}
+		return len(items), tx.Commit()
+	}
+
+	// merge
+	count := 0
+	for i := range items {
+		it := &items[i]
+		tags := it.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		if it.ID != 0 {
+			res, err := tx.Exec(`
+UPDATE hub_items SET type=$1, title=$2, url=$3, content=$4, tags=$5, favorite=$6, updated_at=NOW()
+WHERE user_id=$7 AND id=$8`,
+				it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, userID, it.ID)
+			if err != nil {
+				return 0, err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				count++
+				continue
+			}
+			// id 未命中（可能来自别的用户或已删除）→ 走 insert（新 id）
+		}
+		if _, err := tx.Exec(`
+INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite)
+VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	return count, tx.Commit()
+}

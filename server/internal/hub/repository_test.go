@@ -136,3 +136,79 @@ func TestDeleteReturnsNotFound(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestExportImportMerge(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	// 初始 2 条
+	a, _ := repo.Create(1, &Item{Type: "bookmark", Title: "A"})
+	_, _ = repo.Create(1, &Item{Type: "prompt", Title: "B"})
+
+	// export
+	dump, err := repo.ExportAll(1)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if len(dump) != 2 {
+		t.Fatalf("dump len = %d", len(dump))
+	}
+
+	// 修改 dump：更新 A（title = A2），新增一条 C
+	dump[0].Title = "A2"
+	dump = append(dump, Item{Type: "skill", Title: "C"})
+
+	// import merge
+	n, err := repo.ImportBatch(1, dump, "merge")
+	if err != nil {
+		t.Fatalf("import merge: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("import merge affected = %d, want 3", n)
+	}
+	items, _ := repo.List(1)
+	if len(items) != 3 {
+		t.Fatalf("after merge got %d", len(items))
+	}
+	// 确认 A 被更新，不是被复制
+	got, _ := repo.List(1)
+	found := false
+	for _, it := range got {
+		if it.ID == a.ID && it.Title == "A2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected id=%d title=A2, got %+v", a.ID, got)
+	}
+}
+
+func TestExportImportReplace(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	_, _ = repo.Create(1, &Item{Type: "bookmark", Title: "Old"})
+
+	// replace 传入完全不同的一批
+	n, err := repo.ImportBatch(1, []Item{
+		{Type: "prompt", Title: "New1"},
+		{Type: "skill", Title: "New2"},
+	}, "replace")
+	if err != nil {
+		t.Fatalf("import replace: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("import replace n=%d, want 2", n)
+	}
+	items, _ := repo.List(1)
+	if len(items) != 2 {
+		t.Fatalf("after replace got %d", len(items))
+	}
+	for _, it := range items {
+		if it.Title == "Old" {
+			t.Fatalf("Old still present, replace failed")
+		}
+	}
+}
