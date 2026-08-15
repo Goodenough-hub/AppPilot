@@ -143,8 +143,13 @@ func TestExportImportMerge(t *testing.T) {
 	repo := NewRepository(db)
 
 	// 初始 2 条
-	a, _ := repo.Create(1, &Item{Type: "bookmark", Title: "A"})
-	_, _ = repo.Create(1, &Item{Type: "prompt", Title: "B"})
+	a, err := repo.Create(1, &Item{Type: "bookmark", Title: "A"})
+	if err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	if _, err := repo.Create(1, &Item{Type: "prompt", Title: "B"}); err != nil {
+		t.Fatalf("seed B: %v", err)
+	}
 
 	// export
 	dump, err := repo.ExportAll(1)
@@ -189,7 +194,9 @@ func TestExportImportReplace(t *testing.T) {
 	defer db.Close()
 	repo := NewRepository(db)
 
-	_, _ = repo.Create(1, &Item{Type: "bookmark", Title: "Old"})
+	if _, err := repo.Create(1, &Item{Type: "bookmark", Title: "Old"}); err != nil {
+		t.Fatalf("seed Old: %v", err)
+	}
 
 	// replace 传入完全不同的一批
 	n, err := repo.ImportBatch(1, []Item{
@@ -210,5 +217,71 @@ func TestExportImportReplace(t *testing.T) {
 		if it.Title == "Old" {
 			t.Fatalf("Old still present, replace failed")
 		}
+	}
+}
+
+func TestImportBatchUserScope(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	// user 2 预置一条，作为不该被 user 1 的 import 影响的"外部"数据
+	u2Item, err := repo.Create(2, &Item{Type: "bookmark", Title: "u2-untouched"})
+	if err != nil {
+		t.Fatalf("seed u2: %v", err)
+	}
+
+	// merge：即使传入 u2Item.ID，也不该 hijack 到 user 1 名下改写 u2 的条目
+	// user 1 侧 merge 一条包含 u2Item.ID 的 item —— 期望：u2 的原条目不变，
+	// user 1 得到一条新插入的（因为 id 未命中 user 1 scope，走 fallthrough INSERT）
+	_, err = repo.ImportBatch(1, []Item{
+		{ID: u2Item.ID, Type: "prompt", Title: "u1-merged"},
+	}, "merge")
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	// user 2 那条必须原样存在
+	u2Items, _ := repo.List(2)
+	if len(u2Items) != 1 || u2Items[0].Title != "u2-untouched" {
+		t.Fatalf("user 2 was affected by user 1 merge: %+v", u2Items)
+	}
+	// user 1 得到一条新条目
+	u1Items, _ := repo.List(1)
+	if len(u1Items) != 1 || u1Items[0].Title != "u1-merged" {
+		t.Fatalf("user 1 merge missing: %+v", u1Items)
+	}
+
+	// replace：user 1 的 replace 不该动 user 2
+	_, err = repo.ImportBatch(1, []Item{
+		{Type: "skill", Title: "u1-replaced"},
+	}, "replace")
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	u2Items, _ = repo.List(2)
+	if len(u2Items) != 1 || u2Items[0].Title != "u2-untouched" {
+		t.Fatalf("user 2 was wiped by user 1 replace: %+v", u2Items)
+	}
+}
+
+func TestImportBatchReplaceRejectsEmpty(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	// 预置一条，若 replace 未被守护则会被删光
+	if _, err := repo.Create(1, &Item{Type: "bookmark", Title: "keep-me"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, err := repo.ImportBatch(1, []Item{}, "replace")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	// 确认数据没被误删
+	items, _ := repo.List(1)
+	if len(items) != 1 || items[0].Title != "keep-me" {
+		t.Fatalf("guard didn't work, data lost: %+v", items)
 	}
 }

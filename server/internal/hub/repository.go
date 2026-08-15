@@ -163,6 +163,9 @@ func (r *Repository) ImportBatch(userID int64, items []Item, mode string) (int, 
 	defer tx.Rollback()
 
 	if mode == "replace" {
+		if len(items) == 0 {
+			return 0, errors.New("replace mode requires non-empty items")
+		}
 		if _, err := tx.Exec(`DELETE FROM hub_items WHERE user_id = $1`, userID); err != nil {
 			return 0, err
 		}
