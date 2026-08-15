@@ -22,8 +22,8 @@ type Item struct {
 	Content   *string   `json:"content"` // 可空
 	Tags      []string  `json:"tags"`
 	Favorite  bool      `json:"favorite"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Validate 校验必填字段与长度约束。返回稳定字符串错误便于测试。

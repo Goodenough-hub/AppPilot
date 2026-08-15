@@ -14,6 +14,7 @@ func TestValidateItem(t *testing.T) {
 		{"ok prompt", Item{Type: "prompt", Title: "Code review", Content: strPtr("Please review...")}, ""},
 		{"ok skill", Item{Type: "skill", Title: "whisper.cpp", URL: strPtr("https://github.com/ggerganov/whisper.cpp"), Content: strPtr("desc")}, ""},
 		{"empty title", Item{Type: "bookmark", Title: ""}, "title required"},
+		{"ok title exactly 500 chars", Item{Type: "bookmark", Title: string(make([]byte, 500))}, ""},
 		{"title too long", Item{Type: "bookmark", Title: string(make([]byte, 501))}, "title too long"},
 		{"invalid type", Item{Type: "note", Title: "x"}, "invalid type"},
 	}
