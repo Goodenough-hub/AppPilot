@@ -3,6 +3,8 @@ package hub
 import (
 	"database/sql"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/lib/pq"
 )
@@ -54,18 +56,20 @@ ORDER BY favorite DESC, updated_at DESC`, userID)
 
 // Create 插入一条并回填 ID/时间戳。
 func (r *Repository) Create(userID int64, it *Item) (*Item, error) {
-	if it.Tags == nil {
-		it.Tags = []string{}
+	tags := it.Tags
+	if tags == nil {
+		tags = []string{}
 	}
 	row := r.db.QueryRow(`
 INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, created_at, updated_at`,
-		userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(it.Tags), it.Favorite)
+		userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite)
 	if err := row.Scan(&it.ID, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
 	it.UserID = userID
+	it.Tags = tags // 回填标准化后的空 slice 以保证返回值一致
 	return it, nil
 }
 
@@ -75,7 +79,7 @@ func (r *Repository) Update(userID, id int64, p UpdatePatch) (*Item, error) {
 	args := []any{}
 	next := func(col string, v any) {
 		args = append(args, v)
-		sets = append(sets, col+" = $"+itoa(len(args)))
+		sets = append(sets, col+" = $"+strconv.Itoa(len(args)))
 	}
 	if p.Type != nil {
 		next("type", *p.Type)
@@ -100,8 +104,8 @@ func (r *Repository) Update(userID, id int64, p UpdatePatch) (*Item, error) {
 	}
 	sets = append(sets, "updated_at = NOW()")
 	args = append(args, userID, id)
-	q := "UPDATE hub_items SET " + joinComma(sets) +
-		" WHERE user_id = $" + itoa(len(args)-1) + " AND id = $" + itoa(len(args))
+	q := "UPDATE hub_items SET " + strings.Join(sets, ", ") +
+		" WHERE user_id = $" + strconv.Itoa(len(args)-1) + " AND id = $" + strconv.Itoa(len(args))
 	res, err := r.db.Exec(q, args...)
 	if err != nil {
 		return nil, err
@@ -140,38 +144,4 @@ FROM hub_items WHERE user_id = $1 AND id = $2`, userID, id)
 	}
 	it.Tags = []string(tags)
 	return &it, nil
-}
-
-// 内部小工具，避免引 strconv 与 strings 两个包。
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	buf := [20]byte{}
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
-
-func joinComma(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	out := parts[0]
-	for _, p := range parts[1:] {
-		out += ", " + p
-	}
-	return out
 }

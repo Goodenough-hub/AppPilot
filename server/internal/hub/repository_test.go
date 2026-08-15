@@ -98,8 +98,12 @@ func TestRepositoryUserScope(t *testing.T) {
 	defer db.Close()
 	repo := NewRepository(db)
 
-	_, _ = repo.Create(1, &Item{Type: "bookmark", Title: "u1-item"})
-	_, _ = repo.Create(2, &Item{Type: "bookmark", Title: "u2-item"})
+	if _, err := repo.Create(1, &Item{Type: "bookmark", Title: "u1-item"}); err != nil {
+		t.Fatalf("seed u1: %v", err)
+	}
+	if _, err := repo.Create(2, &Item{Type: "bookmark", Title: "u2-item"}); err != nil {
+		t.Fatalf("seed u2: %v", err)
+	}
 
 	items1, _ := repo.List(1)
 	if len(items1) != 1 || items1[0].Title != "u1-item" {
@@ -108,5 +112,27 @@ func TestRepositoryUserScope(t *testing.T) {
 	items2, _ := repo.List(2)
 	if len(items2) != 1 || items2[0].Title != "u2-item" {
 		t.Fatalf("user 2 scope: %+v", items2)
+	}
+}
+
+func TestUpdateReturnsNotFound(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	newTitle := "x"
+	_, err := repo.Update(1, 999999, UpdatePatch{Title: &newTitle})
+	if err != ErrNotFound {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteReturnsNotFound(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	if err := repo.Delete(1, 999999); err != ErrNotFound {
+		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
