@@ -419,7 +419,8 @@ func MigrateBlog(db *sql.DB) error {
 	return nil
 }
 
-// hubSchema 是 Hub 私人工作台的表族。全部 IF NOT EXISTS，幂等，由 db.Migrate 调用。
+// hubSchema 是 Hub 私人工作台的 hub_items 表定义（单表，非多表族）。
+// 全部 IF NOT EXISTS，幂等，由 db.Migrate 调用。
 const hubSchema = `
 CREATE TABLE IF NOT EXISTS hub_items (
     id          BIGSERIAL PRIMARY KEY,
@@ -434,8 +435,7 @@ CREATE TABLE IF NOT EXISTS hub_items (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT hub_items_type_valid CHECK (type IN ('bookmark','prompt','skill'))
 );
-CREATE INDEX IF NOT EXISTS idx_hub_items_user     ON hub_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_hub_items_fav      ON hub_items(user_id, favorite) WHERE favorite = TRUE;
+CREATE INDEX IF NOT EXISTS idx_hub_items_fav      ON hub_items(user_id) WHERE favorite = TRUE;
 CREATE INDEX IF NOT EXISTS idx_hub_items_tags     ON hub_items USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_hub_items_updated  ON hub_items(user_id, updated_at DESC);
 `
