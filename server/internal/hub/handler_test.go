@@ -89,3 +89,50 @@ func TestHandlerCreateValidation(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestHandlerUpdateInvalidID(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "PATCH", "/hub/items/abc", map[string]any{"favorite": true})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid id, got %d", w.Code)
+	}
+}
+
+func TestHandlerUpdateNotFound(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "PATCH", "/hub/items/999999", map[string]any{"favorite": true})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing id, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerUpdateInvalidType(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	// 先建一条，再尝试把它 type 改成非法值
+	w := doJSON(r, "POST", "/hub/items", map[string]any{"type": "bookmark", "title": "x"})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", w.Code)
+	}
+	var created Item
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	w = doJSON(r, "PATCH", "/hub/items/"+strconv.FormatInt(created.ID, 10), map[string]any{"type": "note"})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid type patch, got %d", w.Code)
+	}
+}
+
+func TestHandlerRemoveInvalidID(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "DELETE", "/hub/items/abc", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid id, got %d", w.Code)
+	}
+}
+
+func TestHandlerRemoveNotFound(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	w := doJSON(r, "DELETE", "/hub/items/999999", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing id, got %d body=%s", w.Code, w.Body.String())
+	}
+}
