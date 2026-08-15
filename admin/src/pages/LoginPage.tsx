@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -48,7 +50,42 @@ export default function LoginPage() {
         </div>
         <div style={{ marginBottom: 24 }}>
           <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}>密码</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="请输入密码" />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showPwd ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              placeholder="请输入密码"
+              style={{ paddingRight: 40, width: '100%' }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPwd(v => !v)}
+              aria-label={showPwd ? '隐藏密码' : '显示密码'}
+              aria-pressed={showPwd}
+              tabIndex={-1}
+              style={{
+                position: 'absolute',
+                right: 6,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 32,
+                height: 32,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                border: 'none',
+                borderRadius: 6,
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
         </div>
         <button type="submit" className="primary" disabled={loading} style={{ width: '100%', padding: '12px', fontSize: 15 }}>
           {loading ? '登录中…' : '登录'}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { Eye, EyeOff, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { createUser, updateUser, type CreateUserRequest, type UpdateUserRequest, type User } from '../api/admin'
 import { SUPPORTED_APPS } from '../lib/apps'
@@ -24,6 +24,7 @@ function intersectSupported(scope: string[] | undefined): string[] {
 export default function UserFormDrawer({ open, mode, user, onClose, onSaved }: UserFormDrawerProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPwd, setShowPwd] = useState(false)
   const [role, setRole] = useState<Role>('user')
   const [appScope, setAppScope] = useState<string[]>([])
   const [error, setError] = useState('')
@@ -34,6 +35,7 @@ export default function UserFormDrawer({ open, mode, user, onClose, onSaved }: U
     if (!open) return
     setError('')
     setPassword('')
+    setShowPwd(false)
     setSubmitting(false)
     if (mode === 'edit' && user) {
       setUsername(user.username)
@@ -139,14 +141,26 @@ export default function UserFormDrawer({ open, mode, user, onClose, onSaved }: U
             <label className="drawer-label">
               {mode === 'create' ? '密码' : '新密码（留空则不修改）'}
             </label>
-            <input
-              className="form-input"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder={mode === 'create' ? '至少 6 个字符' : '不修改请留空'}
-              autoComplete="new-password"
-            />
+            <div className="password-wrap">
+              <input
+                className="form-input"
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder={mode === 'create' ? '至少 6 个字符' : '不修改请留空'}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPwd(v => !v)}
+                aria-label={showPwd ? '隐藏密码' : '显示密码'}
+                aria-pressed={showPwd}
+                tabIndex={-1}
+              >
+                {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             {mode === 'edit' && password.length > 0 && (
               <span style={{ fontSize: 12, color: '#FCA5A5' }}>
                 保存后旧密码立即失效。
@@ -251,6 +265,40 @@ export default function UserFormDrawer({ open, mode, user, onClose, onSaved }: U
           letter-spacing: 0.05em;
           color: var(--text-secondary);
           font-weight: 500;
+        }
+        .password-wrap {
+          position: relative;
+        }
+        .password-wrap .form-input {
+          padding-right: 40px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .password-toggle {
+          position: absolute;
+          right: 6px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 32px;
+          height: 32px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          transition: color 0.15s, background 0.15s;
+        }
+        .password-toggle:hover {
+          color: var(--text-primary);
+          background: var(--surface-hover, rgba(255,255,255,0.04));
+        }
+        .password-toggle:focus-visible {
+          outline: 2px solid var(--primary, #6366F1);
+          outline-offset: 1px;
         }
         .app-check-list {
           display: flex;
