@@ -881,7 +881,7 @@ git commit -m "feat(analytics): add pageview tracking to FinFlow PWA"
 
 ```bash
 # 检查是否有 FluxBlog 前端代码
-ls -la /Users/wwxq/workspace/myapp/FluxBlog/ 2>/dev/null || echo "FluxBlog 前端目录不存在"
+ls -la "$WORKSPACE_ROOT/FluxBlog/" 2>/dev/null || echo "FluxBlog 前端目录不存在"
 ```
 
 如果 FluxBlog 前端存在且使用 React Router，则参照 Task 6 的模式集成埋点。如果不存在，此任务标记为跳过。

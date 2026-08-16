@@ -14,7 +14,7 @@
 - 提交前 `npm run typecheck` + `npm test` 必须通过（admin 前端），`go test ./...` 通过（后端）
 - 遵循现有代码风格：admin 前端用 dark space theme + glass-panel + recharts，后端用 Gin + database/sql
 - 新增前端依赖：`react-grid-layout`（拖拽网格布局）
-- Git 身份须为 `Goodenough`（不得出现 `wwxq`）
+- Git 身份须为 `Goodenough <2323342501@qq.com>`
 
 ---
 
