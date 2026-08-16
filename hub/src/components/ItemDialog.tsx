@@ -17,6 +17,10 @@ const TYPES: { value: ItemType; label: string }[] = [
   { value: 'skill', label: 'Skill' }
 ]
 
+function parseTags(input: string): string[] {
+  return input.split(',').map(s => s.trim()).filter(Boolean)
+}
+
 export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
   const [type, setType] = useState<ItemType>('bookmark')
   const [title, setTitle] = useState('')
@@ -52,7 +56,7 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
       const info = await fetchRepoInfo(parsed.owner, parsed.repo)
       setTitle(info.title)
       if (info.content) setContent(info.content)
-      const existing = tags.split(',').map(s => s.trim()).filter(Boolean)
+      const existing = parseTags(tags)
       const merged = Array.from(new Set([...existing, ...info.tags]))
       setTags(merged.join(', '))
       toast.show('已从 GitHub 拉取')
@@ -71,7 +75,7 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
         type, title,
         url: url.trim() || null,
         content: content.trim() || null,
-        tags: tags.split(',').map(s => s.trim()).filter(Boolean),
+        tags: parseTags(tags),
         favorite
       })
       onOpenChange(false)
@@ -96,20 +100,30 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
               fontSize: 'var(--fs-sm)'
             }}>
               <input type="radio" name="type" value={t.value} checked={type === t.value}
-                onChange={() => setType(t.value)} style={{ display: 'none' }} />
+                onChange={() => setType(t.value)} style={{
+                  position: 'absolute',
+                  width: 1,
+                  height: 1,
+                  padding: 0,
+                  margin: -1,
+                  overflow: 'hidden',
+                  clip: 'rect(0, 0, 0, 0)',
+                  whiteSpace: 'nowrap',
+                  border: 0
+                }} />
               {t.label}
             </label>
           ))}
         </div>
 
         <div>
-          <label style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>标题</label>
-          <input required value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: '100%' }} />
+          <label htmlFor="item-title" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>标题</label>
+          <input id="item-title" required value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: '100%' }} />
         </div>
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)' }}>URL</label>
+            <label htmlFor="item-url" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)' }}>URL</label>
             {canGh && (
               <button type="button" onClick={runGh} disabled={fetching}
                 style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent)' }}>
@@ -117,18 +131,18 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
               </button>
             )}
           </div>
-          <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} style={{ width: '100%' }} />
+          <input id="item-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} style={{ width: '100%' }} />
         </div>
 
         <div>
-          <label style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>内容 / 描述</label>
-          <textarea rows={5} value={content} onChange={(e) => setContent(e.target.value)}
+          <label htmlFor="item-content" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>内容 / 描述</label>
+          <textarea id="item-content" rows={5} value={content} onChange={(e) => setContent(e.target.value)}
             style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }} />
         </div>
 
         <div>
-          <label style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>标签（逗号分隔）</label>
-          <input value={tags} onChange={(e) => setTags(e.target.value)} style={{ width: '100%' }} />
+          <label htmlFor="item-tags" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>标签（逗号分隔）</label>
+          <input id="item-tags" value={tags} onChange={(e) => setTags(e.target.value)} style={{ width: '100%' }} />
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-sm)', color: 'var(--ink-mid)' }}>
