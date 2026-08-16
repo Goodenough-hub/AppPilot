@@ -419,8 +419,10 @@ func MigrateBlog(db *sql.DB) error {
 	return nil
 }
 
-// hubSchema 是 Hub 私人工作台的 hub_items 表定义（单表，非多表族）。
+// hubSchema 是 Hub 私人工作台的表族定义（hub_items + hub_folders）。
 // 全部 IF NOT EXISTS，幂等，由 db.Migrate 调用。
+// hub_items.folder 为文件夹名（空串 = 未分类），命名空间按 (user_id, type) 隔离，
+// 与 hub_folders 按名字松散关联（不建外键：允许条目先落地、文件夹记录由 upsert 补齐）。
 const hubSchema = `
 CREATE TABLE IF NOT EXISTS hub_items (
     id          BIGSERIAL PRIMARY KEY,
@@ -431,6 +433,7 @@ CREATE TABLE IF NOT EXISTS hub_items (
     content     TEXT,
     tags        TEXT[] NOT NULL DEFAULT '{}',
     favorite    BOOLEAN NOT NULL DEFAULT FALSE,
+    folder      VARCHAR(200) NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT hub_items_type_valid CHECK (type IN ('bookmark','prompt','skill'))
@@ -438,12 +441,32 @@ CREATE TABLE IF NOT EXISTS hub_items (
 CREATE INDEX IF NOT EXISTS idx_hub_items_fav      ON hub_items(user_id) WHERE favorite = TRUE;
 CREATE INDEX IF NOT EXISTS idx_hub_items_tags     ON hub_items USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_hub_items_updated  ON hub_items(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS hub_folders (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type        VARCHAR(16) NOT NULL,
+    name        VARCHAR(200) NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT hub_folders_type_valid CHECK (type IN ('bookmark','prompt','skill')),
+    CONSTRAINT hub_folders_unique UNIQUE (user_id, type, name)
+);
+CREATE INDEX IF NOT EXISTS idx_hub_folders_user ON hub_folders(user_id, type);
 `
 
 // MigrateHub 创建 Hub 表族。幂等，由 db.Migrate 调用。
 func MigrateHub(db *sql.DB) error {
 	if _, err := db.Exec(hubSchema); err != nil {
 		return err
+	}
+	// 增量迁移：老库 hub_items 补 folder 列
+	stmts := []string{
+		`ALTER TABLE hub_items ADD COLUMN IF NOT EXISTS folder VARCHAR(200) NOT NULL DEFAULT ''`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-import { Sun, Moon, Download, Upload, Plus } from 'lucide-react'
+import { Sun, Moon, Download, Upload, Plus, FolderPlus } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
 export interface HeaderProps {
@@ -6,11 +6,12 @@ export interface HeaderProps {
   starredCount: number
   typeCount: number
   onAdd: () => void
+  onAddFolder: () => void
   onExport: () => void
   onImport: () => void
 }
 
-export function Header({ totalCount, starredCount, typeCount, onAdd, onExport, onImport }: HeaderProps) {
+export function Header({ totalCount, starredCount, typeCount, onAdd, onAddFolder, onExport, onImport }: HeaderProps) {
   const { theme, toggle } = useTheme()
   return (
     <header style={{ padding: '32px 0 16px' }}>
@@ -27,7 +28,8 @@ export function Header({ totalCount, starredCount, typeCount, onAdd, onExport, o
           </button>
           <button aria-label="导出" onClick={onExport} className="icon-btn"><Download size={16} /></button>
           <button aria-label="导入" onClick={onImport} className="icon-btn"><Upload size={16} /></button>
-          <button onClick={onAdd} className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}><Plus size={14} /> 新增</button>
+          <button aria-label="新建文件夹" onClick={onAddFolder} className="icon-btn" style={{ marginLeft: 8 }}><FolderPlus size={16} /></button>
+          <button onClick={onAdd} className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> 新增</button>
         </div>
       </div>
       <div className="rule-b" />

@@ -1,11 +1,9 @@
 import type { TabKey } from '@/utils/filter'
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'all', label: 'All' },
   { key: 'bookmark', label: 'Bookmarks' },
   { key: 'prompt', label: 'Prompts' },
-  { key: 'skill', label: 'Skills' },
-  { key: 'starred', label: 'Starred' }
+  { key: 'skill', label: 'Skills' }
 ]
 
 export function TabBar({

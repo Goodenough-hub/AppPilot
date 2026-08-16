@@ -1,21 +1,31 @@
-import { useState, useRef, type ChangeEvent } from 'react'
+import { useState, useRef, useMemo, type ChangeEvent } from 'react'
 import { Header } from '@/components/Header'
 import { TabBar } from '@/components/TabBar'
 import { TagCloud } from '@/components/TagCloud'
 import { ItemCard } from '@/components/ItemCard'
 import { SearchBar } from '@/components/SearchBar'
 import { ItemDialog } from '@/components/ItemDialog'
+import { FolderDialog } from '@/components/FolderDialog'
+import { FolderSection } from '@/components/FolderSection'
 import { EmptyState } from '@/components/EmptyState'
 import { AlertDialog } from '@/components/ui/AlertDialog'
 import { Dialog, DialogTitle } from '@/components/ui/Dialog'
 import { useItems } from '@/hooks/useItems'
 import { useFilter } from '@/hooks/useFilter'
+import { useFolders } from '@/hooks/useFolders'
+import { useCollapsedFolders } from '@/hooks/useCollapsedFolders'
 import { useToast } from '@/components/ui/Toast'
+import { groupByFolder } from '@/utils/group'
 import { itemsApi, type Item } from '@/api/hub'
+
+/** 文件夹对话框状态：新建 / 重命名 */
+type FolderDialogState = { mode: 'create' } | { mode: 'rename'; id: number; name: string } | null
 
 export default function HubPage() {
   const { items, loading, create, update, remove, reload } = useItems()
   const { tab, setTab, tag, setTag, query, setQuery, filtered, counts, allTags } = useFilter(items)
+  const { folders, create: createFolder, rename: renameFolder, remove: removeFolder, reload: reloadFolders } = useFolders()
+  const { isCollapsed, toggle: toggleCollapsed } = useCollapsedFolders()
   const toast = useToast()
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -24,6 +34,14 @@ export default function HubPage() {
   const [importMode, setImportMode] = useState<'merge' | 'replace' | null>(null)
   const [importPayload, setImportPayload] = useState<Item[] | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
+
+  const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null)
+  const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<{ id: number; name: string; count: number } | null>(null)
+
+  // 当前 tab 的条目按文件夹分组；搜索/标签过滤激活时隐藏空分组（平时保留，让新建的空文件夹可见）
+  const groups = useMemo(() => groupByFolder(filtered, folders[tab]), [filtered, folders, tab])
+  const filtering = tag !== null || query.trim() !== ''
+  const displayGroups = filtering ? groups.filter((g) => g.items.length > 0) : groups
 
   const openAdd = () => { setEditing(undefined); setDialogOpen(true) }
   const openEdit = (it: Item) => { setEditing(it); setDialogOpen(true) }
@@ -36,6 +54,8 @@ export default function HubPage() {
       await create(input)
       toast.show('已新增')
     }
+    // 条目的 folder 可能被后端自动登记为新文件夹，刷新目录
+    reloadFolders().catch(() => {})
   }
 
   const confirmDelete = async () => {
@@ -47,6 +67,33 @@ export default function HubPage() {
       toast.show(`删除失败：${e?.message ?? 'unknown'}`)
     } finally {
       setConfirmDeleteId(null)
+    }
+  }
+
+  const submitFolder = async (name: string) => {
+    if (!folderDialog) return
+    if (folderDialog.mode === 'create') {
+      await createFolder(tab, name)
+      toast.show('已新建文件夹')
+    } else {
+      await renameFolder(folderDialog.id, name)
+      toast.show('已重命名')
+      // 重命名级联更新了条目 folder，刷新条目
+      await reload()
+    }
+  }
+
+  const confirmDeleteFolderAction = async () => {
+    if (!confirmDeleteFolder) return
+    try {
+      await removeFolder(confirmDeleteFolder.id)
+      toast.show('已删除文件夹，条目已移至未分类')
+      // 条目 folder 被服务端置空，刷新条目
+      await reload()
+    } catch (e: any) {
+      toast.show(`删除失败：${e?.message ?? 'unknown'}`)
+    } finally {
+      setConfirmDeleteFolder(null)
     }
   }
 
@@ -89,6 +136,7 @@ export default function HubPage() {
       const res = await itemsApi.importJson(payload, mode)
       toast.show(`导入完成：${mode} × ${res.affected}`)
       await reload()
+      reloadFolders().catch(() => {})
     } catch (e: any) {
       toast.show(`导入失败：${e?.message ?? 'unknown'}`)
     } finally {
@@ -104,6 +152,7 @@ export default function HubPage() {
         starredCount={counts.starred}
         typeCount={Object.keys(counts).filter(k => k !== 'all' && k !== 'starred' && counts[k as keyof typeof counts] > 0).length}
         onAdd={openAdd}
+        onAddFolder={() => setFolderDialog({ mode: 'create' })}
         onExport={exportJson}
         onImport={onImportClick}
       />
@@ -116,20 +165,32 @@ export default function HubPage() {
 
       {loading ? (
         <EmptyState message="loading…" />
-      ) : filtered.length === 0 ? (
+      ) : displayGroups.length === 0 ? (
         <EmptyState message={items.length === 0 ? '空空如也。点右上 + 新增第一条' : '无匹配条目'} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {filtered.map((it, i) => (
-            <ItemCard
-              key={it.id}
-              item={it}
-              index={i}
-              onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
-              onEdit={openEdit}
-              onDelete={setConfirmDeleteId}
-              onTagClick={setTag}
-            />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+          {displayGroups.map((g) => (
+            <FolderSection
+              key={g.folderId ?? (g.folder === '' ? '__uncategorized__' : `orphan:${g.folder}`)}
+              name={g.folder}
+              count={g.items.length}
+              collapsed={isCollapsed(tab, g.folder)}
+              onToggle={() => toggleCollapsed(tab, g.folder)}
+              onRename={g.folderId != null ? () => setFolderDialog({ mode: 'rename', id: g.folderId!, name: g.folder }) : undefined}
+              onDelete={g.folderId != null ? () => setConfirmDeleteFolder({ id: g.folderId!, name: g.folder, count: g.items.length }) : undefined}
+            >
+              {g.items.map((it, i) => (
+                <ItemCard
+                  key={it.id}
+                  item={it}
+                  index={i}
+                  onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
+                  onEdit={openEdit}
+                  onDelete={setConfirmDeleteId}
+                  onTagClick={setTag}
+                />
+              ))}
+            </FolderSection>
           ))}
         </div>
       )}
@@ -144,7 +205,16 @@ export default function HubPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         initial={editing}
+        foldersByType={folders}
         onSubmit={submitItem}
+      />
+
+      <FolderDialog
+        open={folderDialog !== null}
+        onOpenChange={(v) => !v && setFolderDialog(null)}
+        title={folderDialog?.mode === 'rename' ? '重命名文件夹' : '新建文件夹'}
+        initial={folderDialog?.mode === 'rename' ? folderDialog.name : undefined}
+        onSubmit={submitFolder}
       />
 
       <AlertDialog
@@ -155,6 +225,16 @@ export default function HubPage() {
         confirmText="删除"
         destructive
         onConfirm={confirmDelete}
+      />
+
+      <AlertDialog
+        open={confirmDeleteFolder !== null}
+        onOpenChange={(v) => !v && setConfirmDeleteFolder(null)}
+        title="删除文件夹"
+        description={`文件夹「${confirmDeleteFolder?.name ?? ''}」内的 ${confirmDeleteFolder?.count ?? 0} 个条目将移至未分类，条目本身不删除。`}
+        confirmText="删除"
+        destructive
+        onConfirm={confirmDeleteFolderAction}
       />
 
       {/* import mode selection dialog */}

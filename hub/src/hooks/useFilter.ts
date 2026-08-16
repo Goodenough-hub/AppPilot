@@ -3,7 +3,7 @@ import { filterItems, type TabKey } from '@/utils/filter'
 import type { Item } from '@/api/hub'
 
 export function useFilter(items: Item[]) {
-  const [tab, setTab] = useState<TabKey>('all')
+  const [tab, setTab] = useState<TabKey>('bookmark')
   const [tag, setTag] = useState<string | null>(null)
   const [query, setQuery] = useState('')
 

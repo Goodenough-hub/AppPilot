@@ -10,6 +10,8 @@ export interface Item {
   content: string | null
   tags: string[]
   favorite: boolean
+  /** 文件夹名；'' 表示未分类。命名空间随 item.type */
+  folder: string
   createdAt: string
   updatedAt: string
 }
@@ -21,6 +23,7 @@ export interface ItemInput {
   content?: string | null
   tags?: string[]
   favorite?: boolean
+  folder?: string
 }
 
 export interface ItemPatch {
@@ -30,6 +33,7 @@ export interface ItemPatch {
   content?: string | null
   tags?: string[]
   favorite?: boolean
+  folder?: string
 }
 
 export const itemsApi = {
@@ -41,4 +45,23 @@ export const itemsApi = {
   exportJson: async (): Promise<Item[]> => (await apiClient.get<Item[]>('/hub/export')).data,
   importJson: async (items: Item[], mode: 'merge' | 'replace' = 'merge'): Promise<{ affected: number; mode: string }> =>
     (await apiClient.post(`/hub/import`, items, { params: { mode } })).data
+}
+
+/** 文件夹（按类型隔离命名空间；同名在不同 type 下互不相干） */
+export interface Folder {
+  id: number
+  type: ItemType
+  name: string
+  itemCount: number
+  createdAt: string
+}
+
+export const foldersApi = {
+  list: async (type: ItemType): Promise<Folder[]> =>
+    (await apiClient.get<Folder[]>('/hub/folders', { params: { type } })).data,
+  create: async (type: ItemType, name: string): Promise<Folder> =>
+    (await apiClient.post<Folder>('/hub/folders', { type, name })).data,
+  rename: async (id: number, name: string): Promise<Folder> =>
+    (await apiClient.patch<Folder>(`/hub/folders/${id}`, { name })).data,
+  remove: async (id: number): Promise<void> => { await apiClient.delete(`/hub/folders/${id}`) }
 }

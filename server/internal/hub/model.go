@@ -22,6 +22,7 @@ type Item struct {
 	Content   *string   `json:"content"` // 可空
 	Tags      []string  `json:"tags"`
 	Favorite  bool      `json:"favorite"`
+	Folder    string    `json:"folder"` // 文件夹名，空串 = 未分类；命名空间随 item.Type
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -34,7 +35,37 @@ func (i *Item) Validate() error {
 	if len(i.Title) > 500 {
 		return errors.New("title too long")
 	}
+	if len(i.Folder) > 200 {
+		return errors.New("folder too long")
+	}
 	switch i.Type {
+	case TypeBookmark, TypePrompt, TypeSkill:
+		return nil
+	default:
+		return errors.New("invalid type")
+	}
+}
+
+// Folder 对应 hub_folders 表一行。命名空间按 (user_id, type) 隔离：
+// 同名文件夹在 bookmark / prompt / skill 下互不相干。
+type Folder struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"-"` // 服务端注入，不出对外 JSON
+	Type      string    `json:"type"`
+	Name      string    `json:"name"`
+	ItemCount int       `json:"itemCount"` // 列表接口聚合得出，不落库
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// Validate 校验文件夹字段。返回稳定字符串错误便于测试。
+func (f *Folder) Validate() error {
+	if f.Name == "" {
+		return errors.New("name required")
+	}
+	if len(f.Name) > 200 {
+		return errors.New("name too long")
+	}
+	switch f.Type {
 	case TypeBookmark, TypePrompt, TypeSkill:
 		return nil
 	default:

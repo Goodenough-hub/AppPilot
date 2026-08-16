@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { itemsApi } from './hub'
+import { itemsApi, foldersApi } from './hub'
 import { apiClient } from './client'
 
 describe('itemsApi', () => {
@@ -31,5 +31,37 @@ describe('itemsApi', () => {
     const spy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ data: null })
     await itemsApi.remove(2)
     expect(spy).toHaveBeenCalledWith('/hub/items/2')
+  })
+})
+
+describe('foldersApi', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    localStorage.setItem('hub_token', 'test-token')
+  })
+
+  it('list 请求 GET /hub/folders 带 type 参数', async () => {
+    const spy = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: [] })
+    await foldersApi.list('bookmark')
+    expect(spy).toHaveBeenCalledWith('/hub/folders', { params: { type: 'bookmark' } })
+  })
+
+  it('create 请求 POST /hub/folders', async () => {
+    const spy = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { id: 1 } })
+    await foldersApi.create('bookmark', 'Infini-AI')
+    expect(spy).toHaveBeenCalledWith('/hub/folders', { type: 'bookmark', name: 'Infini-AI' })
+  })
+
+  it('rename 请求 PATCH /hub/folders/:id', async () => {
+    const spy = vi.spyOn(apiClient, 'patch').mockResolvedValue({ data: { id: 1 } })
+    await foldersApi.rename(1, '芯穹')
+    expect(spy).toHaveBeenCalledWith('/hub/folders/1', { name: '芯穹' })
+  })
+
+  it('remove 请求 DELETE /hub/folders/:id', async () => {
+    const spy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ data: null })
+    await foldersApi.remove(2)
+    expect(spy).toHaveBeenCalledWith('/hub/folders/2')
   })
 })

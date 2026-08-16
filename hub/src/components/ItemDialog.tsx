@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Dialog, DialogTitle, DialogClose } from '@/components/ui/Dialog'
-import type { Item, ItemInput, ItemType } from '@/api/hub'
+import type { Folder, Item, ItemInput, ItemType } from '@/api/hub'
 import { parseRepo, fetchRepoInfo } from '@/utils/github'
 import { useToast } from '@/components/ui/Toast'
 
@@ -8,6 +8,8 @@ interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
   initial?: Item
+  /** 各类型下的文件夹目录（文件夹候选随对话框内所选 type 联动） */
+  foldersByType: Record<ItemType, Folder[]>
   onSubmit: (input: ItemInput) => Promise<void>
 }
 
@@ -21,12 +23,13 @@ function parseTags(input: string): string[] {
   return input.split(',').map(s => s.trim()).filter(Boolean)
 }
 
-export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
+export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmit }: Props) {
   const [type, setType] = useState<ItemType>('bookmark')
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
   const [content, setContent] = useState('')
   const [tags, setTags] = useState('')
+  const [folder, setFolder] = useState('')
   const [favorite, setFavorite] = useState(false)
   const [saving, setSaving] = useState(false)
   const [fetching, setFetching] = useState(false)
@@ -40,9 +43,10 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
       setUrl(initial.url ?? '')
       setContent(initial.content ?? '')
       setTags(initial.tags.join(', '))
+      setFolder(initial.folder)
       setFavorite(initial.favorite)
     } else {
-      setType('bookmark'); setTitle(''); setUrl(''); setContent(''); setTags(''); setFavorite(false)
+      setType('bookmark'); setTitle(''); setUrl(''); setContent(''); setTags(''); setFolder(''); setFavorite(false)
     }
   }, [open, initial])
 
@@ -76,6 +80,7 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
         url: url.trim() || null,
         content: content.trim() || null,
         tags: parseTags(tags),
+        folder: folder.trim(),
         favorite
       })
       onOpenChange(false)
@@ -100,7 +105,7 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
               fontSize: 'var(--fs-sm)'
             }}>
               <input type="radio" name="type" value={t.value} checked={type === t.value}
-                onChange={() => setType(t.value)} style={{
+                onChange={() => { setType(t.value); setFolder('') }} style={{
                   position: 'absolute',
                   width: 1,
                   height: 1,
@@ -138,6 +143,14 @@ export function ItemDialog({ open, onOpenChange, initial, onSubmit }: Props) {
           <label htmlFor="item-content" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>内容 / 描述</label>
           <textarea id="item-content" rows={5} value={content} onChange={(e) => setContent(e.target.value)}
             style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }} />
+        </div>
+
+        <div>
+          <label htmlFor="item-folder" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>文件夹（留空为未分类）</label>
+          <input id="item-folder" list="item-folder-candidates" value={folder} onChange={(e) => setFolder(e.target.value)} style={{ width: '100%' }} />
+          <datalist id="item-folder-candidates">
+            {foldersByType[type].map((f) => <option key={f.id} value={f.name} />)}
+          </datalist>
         </div>
 
         <div>
