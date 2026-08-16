@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ItemCard } from './ItemCard'
 import { FolderSection } from './FolderSection'
+import { ToastProvider } from '@/components/ui/Toast'
 import type { Item } from '@/api/hub'
 
 const base: Item = {
@@ -19,7 +20,11 @@ function setup(item: Item = base) {
     onDelete: vi.fn(),
     onTagClick: vi.fn()
   }
-  render(<ItemCard item={item} {...handlers} />)
+  render(
+    <ToastProvider>
+      <ItemCard item={item} {...handlers} />
+    </ToastProvider>
+  )
   return handlers
 }
 
@@ -45,6 +50,14 @@ describe('ItemCard', () => {
     fireEvent.click(btn)
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(base.content))
     expect(await screen.findByLabelText('已复制')).toBeInTheDocument()
+  })
+
+  it('复制成功后弹出 toast 通知「已复制」', async () => {
+    setup()
+    fireEvent.click(screen.getByLabelText('复制内容'))
+    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    // Radix Toast 标题渲染「已复制」文本
+    expect(await screen.findByText('已复制', { selector: '[class], div, span' })).toBeInTheDocument()
   })
 
   it('复制按钮点击不冒泡触发内容块二次复制', async () => {

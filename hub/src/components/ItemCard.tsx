@@ -3,6 +3,7 @@ import { Star, Copy, Check, Pencil, Trash2 } from 'lucide-react'
 import type { Item } from '@/api/hub'
 import { timeAgo, domainOf } from '@/utils/format'
 import { copyText } from '@/utils/copy'
+import { useToast } from '@/components/ui/Toast'
 
 const TYPE_LABEL: Record<Item['type'], string> = {
   bookmark: 'BOOKMARK',
@@ -22,12 +23,14 @@ export function ItemCard({
 }) {
   const [copied, setCopied] = useState(false)
   const domain = domainOf(item.url)
+  const toast = useToast()
 
   const doCopy = async () => {
     if (!item.content) return
     await copyText(item.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 1200)
+    toast.show('已复制')
   }
 
   return (
