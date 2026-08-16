@@ -5,7 +5,7 @@ import { itemsApi, type Item } from '@/api/hub'
 
 const sample: Item = {
   id: 1, type: 'bookmark', title: 'X', url: null, content: null,
-  tags: [], favorite: false, folder: '', createdAt: '', updatedAt: ''
+  tags: [], favorite: false, folder: '', icon: '', createdAt: '', updatedAt: ''
 }
 
 describe('useItems', () => {

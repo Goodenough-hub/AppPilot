@@ -5,7 +5,7 @@ import type { Item } from '@/api/hub'
 
 const base: Item = {
   id: 1, type: 'bookmark', title: 'Infini-AI GitLab', url: 'https://gitlab.infini-ai.com/',
-  content: null, tags: [], favorite: false, folder: 'Infini-AI', createdAt: '', updatedAt: ''
+  content: null, tags: [], favorite: false, folder: 'Infini-AI', icon: '', createdAt: '', updatedAt: ''
 }
 
 function setup(item: Item = base) {
@@ -73,11 +73,27 @@ describe('BookmarkRow', () => {
     expect(img!.getAttribute('loading')).toBe('lazy')
   })
 
-  it('favicon 加载失败时回落为默认图标（img 移除）', () => {
+  it('favicon 加载失败按候选链依次后移，全部失败回落为默认图标', () => {
     const { container } = render(
       <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
     )
+    const origin = 'https://gitlab.infini-ai.com'
+    // 每失败一次换下一个候选路径
+    for (const path of ['/favicon.ico', '/favicon.svg', '/favicon.png']) {
+      const img = container.querySelector('img')
+      expect(img!.getAttribute('src')).toBe(origin + path)
+      fireEvent.error(img!)
+    }
+    fireEvent.error(container.querySelector('img')!) // apple-touch-icon.png 也失败
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('有自定义 icon 时只用自定义地址，失败后直接回落', () => {
+    const { container } = render(
+      <BookmarkRow item={{ ...base, icon: 'https://cdn.example.com/logo.png' }} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
     const img = container.querySelector('img')!
+    expect(img.getAttribute('src')).toBe('https://cdn.example.com/logo.png')
     fireEvent.error(img)
     expect(container.querySelector('img')).toBeNull()
   })

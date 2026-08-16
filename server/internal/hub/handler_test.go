@@ -232,6 +232,22 @@ func TestHandlerItemFolderField(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for long folder, got %d", w.Code)
 	}
+
+	// PATCH icon → 200 且回显；icon 超长 → 400
+	w = doJSON(r, "PATCH", "/hub/items/"+strconv.FormatInt(created.ID, 10), map[string]any{"icon": "https://cdn.example.com/f.png"})
+	if w.Code != 200 {
+		t.Fatalf("patch icon code=%d body=%s", w.Code, w.Body.String())
+	}
+	var withIcon Item
+	_ = json.Unmarshal(w.Body.Bytes(), &withIcon)
+	if withIcon.Icon != "https://cdn.example.com/f.png" {
+		t.Fatalf("patched icon = %q", withIcon.Icon)
+	}
+	longIcon := make([]byte, 1001)
+	w = doJSON(r, "PATCH", "/hub/items/"+strconv.FormatInt(created.ID, 10), map[string]any{"icon": string(longIcon)})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for long icon, got %d", w.Code)
+	}
 }
 
 func TestHandlerFolders(t *testing.T) {

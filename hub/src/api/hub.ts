@@ -12,6 +12,8 @@ export interface Item {
   favorite: boolean
   /** 文件夹名；'' 表示未分类。命名空间随 item.type */
   folder: string
+  /** 自定义图标 URL；'' 表示按站点 favicon 自动探测 */
+  icon: string
   createdAt: string
   updatedAt: string
 }
@@ -24,6 +26,7 @@ export interface ItemInput {
   tags?: string[]
   favorite?: boolean
   folder?: string
+  icon?: string
 }
 
 export interface ItemPatch {
@@ -34,6 +37,7 @@ export interface ItemPatch {
   tags?: string[]
   favorite?: boolean
   folder?: string
+  icon?: string
 }
 
 export const itemsApi = {

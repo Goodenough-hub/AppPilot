@@ -3,7 +3,7 @@ import { groupByFolder } from './group'
 import type { Folder, Item } from '@/api/hub'
 
 function item(id: number, folder: string): Item {
-  return { id, type: 'bookmark', title: `t${id}`, url: null, content: null, tags: [], favorite: false, folder, createdAt: '', updatedAt: '' }
+  return { id, type: 'bookmark', title: `t${id}`, url: null, content: null, tags: [], favorite: false, folder, icon: '', createdAt: '', updatedAt: '' }
 }
 function folder(id: number, name: string): Folder {
   return { id, type: 'bookmark', name, itemCount: 0, createdAt: '' }

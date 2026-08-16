@@ -3,9 +3,9 @@ import { filterItems } from './filter'
 import type { Item } from '@/api/hub'
 
 const items: Item[] = [
-  { id: 1, type: 'bookmark', title: 'GitHub', url: 'https://github.com', content: null, tags: ['dev'], favorite: false, folder: '', createdAt: '', updatedAt: '' },
-  { id: 2, type: 'prompt', title: 'C++ refactor', url: null, content: 'You are a systems engineer...', tags: ['C++', 'perf'], favorite: true, folder: '', createdAt: '', updatedAt: '' },
-  { id: 3, type: 'skill', title: 'whisper.cpp', url: 'https://github.com/ggerganov/whisper.cpp', content: 'edge asr', tags: ['C++', 'audio'], favorite: false, folder: '', createdAt: '', updatedAt: '' }
+  { id: 1, type: 'bookmark', title: 'GitHub', url: 'https://github.com', content: null, tags: ['dev'], favorite: false, folder: '', icon: '', createdAt: '', updatedAt: '' },
+  { id: 2, type: 'prompt', title: 'C++ refactor', url: null, content: 'You are a systems engineer...', tags: ['C++', 'perf'], favorite: true, folder: '', icon: '', createdAt: '', updatedAt: '' },
+  { id: 3, type: 'skill', title: 'whisper.cpp', url: 'https://github.com/ggerganov/whisper.cpp', content: 'edge asr', tags: ['C++', 'audio'], favorite: false, folder: '', icon: '', createdAt: '', updatedAt: '' }
 ]
 
 describe('filterItems', () => {

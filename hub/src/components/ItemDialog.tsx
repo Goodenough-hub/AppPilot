@@ -30,6 +30,7 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
   const [content, setContent] = useState('')
   const [tags, setTags] = useState('')
   const [folder, setFolder] = useState('')
+  const [icon, setIcon] = useState('')
   const [favorite, setFavorite] = useState(false)
   const [saving, setSaving] = useState(false)
   const [fetching, setFetching] = useState(false)
@@ -44,9 +45,10 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
       setContent(initial.content ?? '')
       setTags(initial.tags.join(', '))
       setFolder(initial.folder)
+      setIcon(initial.icon)
       setFavorite(initial.favorite)
     } else {
-      setType('bookmark'); setTitle(''); setUrl(''); setContent(''); setTags(''); setFolder(''); setFavorite(false)
+      setType('bookmark'); setTitle(''); setUrl(''); setContent(''); setTags(''); setFolder(''); setIcon(''); setFavorite(false)
     }
   }, [open, initial])
 
@@ -81,6 +83,7 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
         content: content.trim() || null,
         tags: parseTags(tags),
         folder: folder.trim(),
+        icon: icon.trim(),
         favorite
       })
       onOpenChange(false)
@@ -105,7 +108,7 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
               fontSize: 'var(--fs-sm)'
             }}>
               <input type="radio" name="type" value={t.value} checked={type === t.value}
-                onChange={() => { setType(t.value); setFolder('') }} style={{
+                onChange={() => { setType(t.value); setFolder(''); setIcon('') }} style={{
                   position: 'absolute',
                   width: 1,
                   height: 1,
@@ -152,6 +155,13 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
             {foldersByType[type].map((f) => <option key={f.id} value={f.name} />)}
           </datalist>
         </div>
+
+        {type === 'bookmark' && (
+          <div>
+            <label htmlFor="item-icon" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>图标 URL（留空按站点自动探测）</label>
+            <input id="item-icon" type="url" value={icon} onChange={(e) => setIcon(e.target.value)} style={{ width: '100%' }} />
+          </div>
+        )}
 
         <div>
           <label htmlFor="item-tags" style={{ fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', display: 'block', marginBottom: 4 }}>标签（逗号分隔）</label>

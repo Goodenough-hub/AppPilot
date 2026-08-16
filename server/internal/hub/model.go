@@ -23,6 +23,7 @@ type Item struct {
 	Tags      []string  `json:"tags"`
 	Favorite  bool      `json:"favorite"`
 	Folder    string    `json:"folder"` // 文件夹名，空串 = 未分类；命名空间随 item.Type
+	Icon      string    `json:"icon"`   // 自定义图标 URL，空串 = 按站点 favicon 自动探测
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -37,6 +38,9 @@ func (i *Item) Validate() error {
 	}
 	if len(i.Folder) > 200 {
 		return errors.New("folder too long")
+	}
+	if len(i.Icon) > 1000 {
+		return errors.New("icon too long")
 	}
 	switch i.Type {
 	case TypeBookmark, TypePrompt, TypeSkill:

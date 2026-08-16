@@ -40,6 +40,7 @@ CREATE TABLE hub_items (
     tags TEXT[] NOT NULL DEFAULT '{}',
     favorite BOOLEAN NOT NULL DEFAULT FALSE,
     folder VARCHAR(200) NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`)
@@ -313,17 +314,20 @@ func TestItemFolderRoundtrip(t *testing.T) {
 	defer db.Close()
 	repo := NewRepository(db)
 
-	// Create 带 folder，返回值与 List/findByID 都应读回
-	created, err := repo.Create(1, &Item{Type: "bookmark", Title: "Ex", Folder: "Infini-AI"})
+	// Create 带 folder/icon，返回值与 List/findByID 都应读回
+	created, err := repo.Create(1, &Item{Type: "bookmark", Title: "Ex", Folder: "Infini-AI", Icon: "https://cdn.example.com/logo.png"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if created.Folder != "Infini-AI" {
 		t.Fatalf("created folder = %q", created.Folder)
 	}
+	if created.Icon != "https://cdn.example.com/logo.png" {
+		t.Fatalf("created icon = %q", created.Icon)
+	}
 	items, _ := repo.List(1)
-	if len(items) != 1 || items[0].Folder != "Infini-AI" {
-		t.Fatalf("list folder mismatch: %+v", items)
+	if len(items) != 1 || items[0].Folder != "Infini-AI" || items[0].Icon != "https://cdn.example.com/logo.png" {
+		t.Fatalf("list folder/icon mismatch: %+v", items)
 	}
 
 	// Create 的 folder 自动登记进 hub_folders（含条数）

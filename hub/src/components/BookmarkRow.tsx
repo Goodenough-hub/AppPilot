@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Star, Pencil, Trash2, Globe } from 'lucide-react'
 import type { Item } from '@/api/hub'
 import { domainOf } from '@/utils/format'
@@ -13,6 +13,9 @@ function originOf(url: string | null | undefined): string {
   }
 }
 
+/** 自动探测时的候选路径（按常见程度排序，onError 依次后移） */
+const FAVICON_PATHS = ['/favicon.ico', '/favicon.svg', '/favicon.png', '/apple-touch-icon.png']
+
 /** 书签紧凑行：图标 + 标题链接 + 域名 + hover 显现的操作（收藏/编辑/删除）。
  *  书签只为跳转服务，不用卡片；prompt/skill 仍用 ItemCard。 */
 export function BookmarkRow({
@@ -26,25 +29,31 @@ export function BookmarkRow({
 }) {
   const domain = domainOf(item.url)
   const origin = originOf(item.url)
-  // favicon 由浏览器直接向目标站点取（与浏览器书签同理）；加载失败（内网/无图标/http 混合内容被拦）回落 Globe。
-  // 按 origin 记录失败，URL 编辑后自动重试。
-  const [failedOrigin, setFailedOrigin] = useState<string | null>(null)
-  const showFavicon = origin !== '' && failedOrigin !== origin
+  // 图标候选：有自定义 icon 只用它；否则按候选路径依次探测。全部失败回落 Globe。
+  const candidates = useMemo(() => {
+    if (item.icon) return [item.icon]
+    if (!origin) return []
+    return FAVICON_PATHS.map((p) => origin + p)
+  }, [item.icon, origin])
+  const [failedCount, setFailedCount] = useState(0)
+  // URL/自定义图标变化后从头重试
+  useEffect(() => setFailedCount(0), [item.url, item.icon])
+  const iconSrc = failedCount < candidates.length ? candidates[failedCount] : null
 
   return (
     <div
       className="bookmark-row"
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px' }}
     >
-      {showFavicon ? (
+      {iconSrc ? (
         <img
-          src={`${origin}/favicon.ico`}
+          src={iconSrc}
           alt=""
           width={14}
           height={14}
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setFailedOrigin(origin)}
+          onError={() => setFailedCount((c) => c + 1)}
           style={{ flexShrink: 0, borderRadius: 3, width: 14, height: 14 }}
         />
       ) : (

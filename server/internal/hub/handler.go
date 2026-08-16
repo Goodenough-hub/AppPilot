@@ -54,6 +54,7 @@ type createRequest struct {
 	Tags     []string `json:"tags"`
 	Favorite bool     `json:"favorite"`
 	Folder   string   `json:"folder"`
+	Icon     string   `json:"icon"`
 }
 
 func (h *Handler) create(c *gin.Context) {
@@ -66,7 +67,7 @@ func (h *Handler) create(c *gin.Context) {
 		Type: req.Type, Title: req.Title,
 		URL: req.URL, Content: req.Content,
 		Tags: req.Tags, Favorite: req.Favorite,
-		Folder: req.Folder,
+		Folder: req.Folder, Icon: req.Icon,
 	}
 	if err := it.Validate(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -88,6 +89,7 @@ type updateRequest struct {
 	Tags     *[]string `json:"tags"`
 	Favorite *bool     `json:"favorite"`
 	Folder   *string   `json:"folder"`
+	Icon     *string   `json:"icon"`
 }
 
 func (h *Handler) update(c *gin.Context) {
@@ -101,8 +103,8 @@ func (h *Handler) update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// 若提供 type/title/folder 之一，做一次 Validate（用一个探针 Item 校验字段合法性）
-	if req.Type != nil || req.Title != nil || req.Folder != nil {
+	// 若提供 type/title/folder/icon 之一，做一次 Validate（用一个探针 Item 校验字段合法性）
+	if req.Type != nil || req.Title != nil || req.Folder != nil || req.Icon != nil {
 		probe := Item{
 			Type:  "bookmark", // 默认合法占位
 			Title: "x",        // 默认合法占位
@@ -116,6 +118,9 @@ func (h *Handler) update(c *gin.Context) {
 		if req.Folder != nil {
 			probe.Folder = *req.Folder
 		}
+		if req.Icon != nil {
+			probe.Icon = *req.Icon
+		}
 		if err := probe.Validate(); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -124,7 +129,7 @@ func (h *Handler) update(c *gin.Context) {
 	updated, err := h.repo.Update(userIDOf(c), id, UpdatePatch{
 		Type: req.Type, Title: req.Title, URL: req.URL,
 		Content: req.Content, Tags: req.Tags, Favorite: req.Favorite,
-		Folder: req.Folder,
+		Folder: req.Folder, Icon: req.Icon,
 	})
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {

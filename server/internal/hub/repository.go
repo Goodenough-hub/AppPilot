@@ -54,13 +54,14 @@ type UpdatePatch struct {
 	Tags     *[]string
 	Favorite *bool
 	Folder   *string
+	Icon     *string
 }
 
 // List 返回 user_id 作用域下的全部条目，
 // 排序：favorite 优先，updated_at 降序。
 func (r *Repository) List(userID int64) ([]Item, error) {
 	rows, err := r.db.Query(`
-SELECT id, user_id, type, title, url, content, tags, favorite, folder, created_at, updated_at
+SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, created_at, updated_at
 FROM hub_items
 WHERE user_id = $1
 ORDER BY favorite DESC, updated_at DESC`, userID)
@@ -72,7 +73,7 @@ ORDER BY favorite DESC, updated_at DESC`, userID)
 	for rows.Next() {
 		var it Item
 		var tags pq.StringArray
-		if err := rows.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			return nil, err
 		}
 		it.Tags = []string(tags)
@@ -88,10 +89,10 @@ func (r *Repository) Create(userID int64, it *Item) (*Item, error) {
 		tags = []string{}
 	}
 	row := r.db.QueryRow(`
-INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder, icon)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, created_at, updated_at`,
-		userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder)
+		userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder, it.Icon)
 	if err := row.Scan(&it.ID, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -131,6 +132,9 @@ func (r *Repository) Update(userID, id int64, p UpdatePatch) (*Item, error) {
 	}
 	if p.Folder != nil {
 		next("folder", *p.Folder)
+	}
+	if p.Icon != nil {
+		next("icon", *p.Icon)
 	}
 	if len(sets) == 0 {
 		return r.findByID(userID, id)
@@ -175,11 +179,11 @@ func (r *Repository) Delete(userID, id int64) error {
 
 func (r *Repository) findByID(userID, id int64) (*Item, error) {
 	row := r.db.QueryRow(`
-SELECT id, user_id, type, title, url, content, tags, favorite, folder, created_at, updated_at
+SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, created_at, updated_at
 FROM hub_items WHERE user_id = $1 AND id = $2`, userID, id)
 	var it Item
 	var tags pq.StringArray
-	if err := row.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.CreatedAt, &it.UpdatedAt); err != nil {
+	if err := row.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -238,9 +242,9 @@ func (r *Repository) ImportBatch(userID int64, items []Item, mode string) (int, 
 				tags = []string{}
 			}
 			if _, err := tx.Exec(`
-INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-				userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder); err != nil {
+INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder, icon)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+				userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder, it.Icon); err != nil {
 				return 0, err
 			}
 			rememberFolder(it.Type, it.Folder)
@@ -261,9 +265,9 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		}
 		if it.ID != 0 {
 			res, err := tx.Exec(`
-UPDATE hub_items SET type=$1, title=$2, url=$3, content=$4, tags=$5, favorite=$6, folder=$7, updated_at=NOW()
-WHERE user_id=$8 AND id=$9`,
-				it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder, userID, it.ID)
+UPDATE hub_items SET type=$1, title=$2, url=$3, content=$4, tags=$5, favorite=$6, folder=$7, icon=$8, updated_at=NOW()
+WHERE user_id=$9 AND id=$10`,
+				it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder, it.Icon, userID, it.ID)
 			if err != nil {
 				return 0, err
 			}
@@ -275,9 +279,9 @@ WHERE user_id=$8 AND id=$9`,
 			// id 未命中（可能来自别的用户或已删除）→ 走 insert（新 id）
 		}
 		if _, err := tx.Exec(`
-INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder); err != nil {
+INSERT INTO hub_items (user_id, type, title, url, content, tags, favorite, folder, icon)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			userID, it.Type, it.Title, it.URL, it.Content, pq.StringArray(tags), it.Favorite, it.Folder, it.Icon); err != nil {
 			return 0, err
 		}
 		count++
