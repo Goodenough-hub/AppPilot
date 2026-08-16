@@ -16,7 +16,7 @@ export function Header({ totalCount, starredCount, typeCount, onAdd, onExport, o
     <header style={{ padding: '32px 0 16px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 24, marginBottom: 24, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
-          <h1 className="font-serif italic" style={{ fontSize: 'var(--fs-xl)', margin: 0, lineHeight: 1.1 }}>Hub</h1>
+          <h1 className="font-serif italic font-display" style={{ fontSize: 'var(--fs-xl)', margin: 0 }}>Hub</h1>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--ink-dim)', whiteSpace: 'nowrap' }}>
             {totalCount} items · {starredCount} starred · {typeCount} types
           </span>

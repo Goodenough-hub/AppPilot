@@ -52,7 +52,8 @@ export function ItemCard({
           aria-label={item.favorite ? '取消收藏' : '收藏'}
           aria-pressed={item.favorite}
           onClick={() => onToggleFav(item.id, !item.favorite)}
-          style={{ display: 'flex', padding: 2, color: item.favorite ? 'var(--accent)' : 'var(--ink-dim)', transition: 'color 140ms ease, transform 140ms ease' }}
+          className="fav-btn"
+          style={{ display: 'flex', padding: 2, color: item.favorite ? 'var(--accent)' : 'var(--ink-dim)', transition: 'color 140ms ease' }}
         >
           <Star size={15} fill={item.favorite ? 'currentColor' : 'none'} />
         </button>

@@ -27,7 +27,7 @@ export default function LoginPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 32 }}>
       <div style={{ width: '100%', maxWidth: 360 }}>
-        <h1 className="font-serif italic" style={{ fontSize: 'var(--fs-xl)', margin: 0, marginBottom: 32, textAlign: 'center' }}>Hub</h1>
+        <h1 className="font-serif italic font-display" style={{ fontSize: 'var(--fs-xl)', margin: 0, marginBottom: 32, textAlign: 'center' }}>Hub</h1>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="用户名" autoFocus required />
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码" required />

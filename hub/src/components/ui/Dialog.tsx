@@ -6,10 +6,19 @@ export function Dialog({ open, onOpenChange, children }: { open: boolean; onOpen
   return (
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
-        <RD.Overlay className="fixed inset-0 bg-black/40 z-40" />
+        <RD.Overlay
+          className="fixed inset-0 bg-black/40 z-40"
+          style={{ animation: 'overlay-in 160ms ease-out' }}
+        />
         <RD.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg rounded-lg p-6 shadow-lg"
-          style={{ background: 'var(--paper-lift)', border: '1px solid var(--rule)', color: 'var(--ink)' }}
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg rounded-xl p-6"
+          style={{
+            background: 'var(--paper-lift)',
+            border: '1px solid var(--rule)',
+            color: 'var(--ink)',
+            boxShadow: '0 24px 64px -16px rgba(0, 0, 0, 0.5)',
+            animation: 'dialog-in 200ms cubic-bezier(0.32, 0.72, 0.35, 1)'
+          }}
         >
           {children}
         </RD.Content>
