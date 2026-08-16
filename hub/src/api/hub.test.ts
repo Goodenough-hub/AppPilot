@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { itemsApi, foldersApi } from './hub'
+import { itemsApi, foldersApi, faviconApi } from './hub'
 import { apiClient } from './client'
 
 describe('itemsApi', () => {
@@ -69,5 +69,25 @@ describe('foldersApi', () => {
     const spy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ data: null })
     await foldersApi.remove(2)
     expect(spy).toHaveBeenCalledWith('/hub/folders/2')
+  })
+})
+
+describe('faviconApi', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    localStorage.setItem('hub_token', 'test-token')
+  })
+
+  it('discover 请求 GET /hub/favicon 带 url 参数', async () => {
+    const spy = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: { icons: ['https://cdn.example.com/x.png'] } })
+    const icons = await faviconApi.discover('https://example.com/login?redirect=/console')
+    expect(spy).toHaveBeenCalledWith('/hub/favicon', { params: { url: 'https://example.com/login?redirect=/console' } })
+    expect(icons).toEqual(['https://cdn.example.com/x.png'])
+  })
+
+  it('discover 在 icons 为 null 时归一化为空数组', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue({ data: { icons: null } })
+    expect(await faviconApi.discover('https://example.com/')).toEqual([])
   })
 })

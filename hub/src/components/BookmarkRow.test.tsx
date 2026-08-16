@@ -1,7 +1,14 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BookmarkRow } from './BookmarkRow'
 import type { Item } from '@/api/hub'
+import { faviconApi } from '@/api/hub'
+
+vi.mock('@/api/hub', () => ({
+  faviconApi: { discover: vi.fn() }
+}))
+
+const discoverMock = vi.mocked(faviconApi.discover)
 
 const base: Item = {
   id: 1, type: 'bookmark', title: 'Infini-AI GitLab', url: 'https://gitlab.infini-ai.com/',
@@ -20,7 +27,11 @@ function setup(item: Item = base) {
 }
 
 describe('BookmarkRow', () => {
-  beforeEach(() => localStorage.clear())
+  beforeEach(() => {
+    localStorage.clear()
+    discoverMock.mockReset()
+    discoverMock.mockResolvedValue([])
+  })
 
   it('标题渲染为新窗口打开的跳转链接，并显示域名', () => {
     setup()
@@ -75,7 +86,7 @@ describe('BookmarkRow', () => {
     expect(img!.getAttribute('loading')).toBe('lazy')
   })
 
-  it('favicon 加载失败按候选链依次后移，全部失败回落为默认图标', () => {
+  it('favicon 加载失败按候选链依次后移，全部失败回落为默认图标', async () => {
     const { container } = render(
       <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
     )
@@ -87,6 +98,9 @@ describe('BookmarkRow', () => {
       fireEvent.error(img!)
     }
     fireEvent.error(container.querySelector('img')!) // apple-touch-icon.png 也失败
+    expect(container.querySelector('img')).toBeNull()
+    // 静态链耗尽触发后端发现兜底；返回空则保持默认图标
+    await waitFor(() => expect(discoverMock).toHaveBeenCalledWith('https://gitlab.infini-ai.com/'))
     expect(container.querySelector('img')).toBeNull()
   })
 
@@ -134,7 +148,7 @@ describe('BookmarkRow', () => {
     expect(localStorage.getItem('hub_favicon_cache')).toBeNull()
   })
 
-  it('全链失败后清掉该 origin 的过期缓存', () => {
+  it('全链失败后清掉该 origin 的过期缓存', async () => {
     localStorage.setItem('hub_favicon_cache', JSON.stringify({
       'https://gitlab.infini-ai.com': 'https://gitlab.infini-ai.com/favicon.png'
     }))
@@ -149,5 +163,51 @@ describe('BookmarkRow', () => {
     const raw = localStorage.getItem('hub_favicon_cache')
     const cache = raw ? JSON.parse(raw) : {}
     expect(cache['https://gitlab.infini-ai.com']).toBeUndefined()
+    await waitFor(() => expect(discoverMock).toHaveBeenCalled())
+  })
+
+  it('静态链全部失败后调用后端发现接口，使用返回的图标并把胜者写入缓存', async () => {
+    // 回归用例：SPA fallback 站点（/favicon.ico 等返回 200 text/html 解码失败），真实图标在别的 origin
+    const cdnIcon = 'https://content.cloud.infini-ai.com/platform-web-prod/logo_small.png'
+    discoverMock.mockResolvedValue([cdnIcon])
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    for (let i = 0; i < 4; i++) {
+      fireEvent.error(container.querySelector('img')!)
+    }
+    expect(container.querySelector('img')).toBeNull()
+    await waitFor(() => expect(container.querySelector('img')!.getAttribute('src')).toBe(cdnIcon))
+    expect(discoverMock).toHaveBeenCalledWith('https://gitlab.infini-ai.com/')
+    fireEvent.load(container.querySelector('img')!)
+    const cache = JSON.parse(localStorage.getItem('hub_favicon_cache')!)
+    expect(cache['https://gitlab.infini-ai.com']).toBe(cdnIcon)
+  })
+
+  it('后端发现结果也按序探测，全部失败回落默认图标', async () => {
+    discoverMock.mockResolvedValue(['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'])
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    for (let i = 0; i < 4; i++) {
+      fireEvent.error(container.querySelector('img')!)
+    }
+    await waitFor(() => expect(container.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example.com/a.png'))
+    fireEvent.error(container.querySelector('img')!)
+    expect(container.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example.com/b.png')
+    fireEvent.error(container.querySelector('img')!)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('后端发现接口报错时静默回落默认图标', async () => {
+    discoverMock.mockRejectedValue(new Error('bad gateway'))
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    for (let i = 0; i < 4; i++) {
+      fireEvent.error(container.querySelector('img')!)
+    }
+    await waitFor(() => expect(discoverMock).toHaveBeenCalled())
+    expect(container.querySelector('img')).toBeNull()
   })
 })

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Star, Pencil, Trash2, Globe } from 'lucide-react'
 import type { Item } from '@/api/hub'
+import { faviconApi } from '@/api/hub'
 import { domainOf } from '@/utils/format'
 import { faviconCandidates, saveCandidate, dropCandidate } from '@/utils/favicon'
 
@@ -27,15 +28,28 @@ export function BookmarkRow({
 }) {
   const domain = domainOf(item.url)
   const origin = originOf(item.url)
-  // 图标候选：有自定义 icon 只用它；否则按候选链探测（缓存的胜者排第一）。全部失败回落 Globe。
+  // 后端发现的图标（null = 尚未请求）。静态候选链全部失败后才请求一次兜底。
+  const [remote, setRemote] = useState<string[] | null>(null)
+  // 图标候选：有自定义 icon 只用它；静态链耗尽后改用后端发现结果；否则按候选链探测（缓存的胜者排第一）。全部失败回落 Globe。
   const candidates = useMemo(() => {
     if (item.icon) return [item.icon]
     if (!origin) return []
+    if (remote !== null) return remote
     return faviconCandidates(origin)
-  }, [item.icon, origin])
+  }, [item.icon, origin, remote])
   const [failedCount, setFailedCount] = useState(0)
   // URL/自定义图标变化后从头重试
-  useEffect(() => setFailedCount(0), [item.url, item.icon])
+  useEffect(() => { setFailedCount(0); setRemote(null) }, [item.url, item.icon])
+  // 静态候选链全部失败：请后端抓页面解析 <link rel="icon"> 兜底（每条目挂载后最多一次）
+  useEffect(() => {
+    if (item.icon || !item.url || !origin) return
+    if (remote !== null || failedCount < candidates.length) return
+    let cancelled = false
+    faviconApi.discover(item.url)
+      .then((icons) => { if (!cancelled) { setRemote(icons); setFailedCount(0) } })
+      .catch(() => { if (!cancelled) setRemote([]) })
+    return () => { cancelled = true }
+  }, [item.icon, item.url, origin, remote, failedCount, candidates.length])
   const iconSrc = failedCount < candidates.length ? candidates[failedCount] : null
 
   // 探测成功：缓存胜者（自定义 icon 不参与缓存）；全链失败：清掉该 origin 的过期缓存

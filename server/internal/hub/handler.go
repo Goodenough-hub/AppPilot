@@ -3,6 +3,7 @@ package hub
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.POST("/folders", h.createFolder)
 	rg.PATCH("/folders/:id", h.renameFolder)
 	rg.DELETE("/folders/:id", h.deleteFolder)
+	rg.GET("/favicon", h.favicon)
 }
 
 func userIDOf(c *gin.Context) int64 {
@@ -233,6 +235,24 @@ func (h *Handler) reorderItems(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// favicon：GET /hub/favicon?url=<page>。服务端抓页面 HTML 解析 <link rel="...icon...">，
+// 返回按优先级排序的图标绝对 URL——前端静态候选链（/favicon.ico 等）全部失败后的兜底发现
+// （典型场景：SPA 对任意路径 200 返回 index.html，真实图标经 <link> 声明且常在别的 origin）。
+func (h *Handler) favicon(c *gin.Context) {
+	raw := strings.TrimSpace(c.Query("url"))
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url"})
+		return
+	}
+	icons, err := discoverFavicons(u)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"icons": icons})
 }
 
 // ---- folders ----

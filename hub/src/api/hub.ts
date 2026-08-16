@@ -57,6 +57,13 @@ export const itemsApi = {
   }
 }
 
+/** favicon 发现：后端抓页面 HTML 解析 <link rel="icon"> 返回图标绝对 URL，
+ *  供前端静态候选链（/favicon.ico 等）全部失败后的兜底（如 SPA fallback 站点） */
+export const faviconApi = {
+  discover: async (url: string): Promise<string[]> =>
+    (await apiClient.get<{ icons: string[] | null }>('/hub/favicon', { params: { url } })).data.icons ?? []
+}
+
 /** 文件夹（按类型隔离命名空间；同名在不同 type 下互不相干） */
 export interface Folder {
   id: number
