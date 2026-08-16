@@ -13,7 +13,7 @@ export function SearchBar({
   })
 
   useEffect(() => {
-    // Esc 清空 + 失焦
+    // Esc clears value and blurs
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && document.activeElement === ref.current) {
         onChange('')
@@ -42,6 +42,7 @@ export function SearchBar({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="搜索  ·  按 / 或 ⌘K 唤起"
+          aria-label="搜索"
           style={{ background: 'transparent', border: 'none', padding: 0, flex: 1, fontSize: 'var(--fs-sm)' }}
         />
         {value && (
