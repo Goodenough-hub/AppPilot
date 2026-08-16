@@ -55,6 +55,12 @@ html, body, #root {
   padding: 0;
 }
 
+/* 始终预留滚动条槽位：Radix 弹窗锁定 body 滚动时视口宽度不变，
+   消除 fixed 百分比定位（left:50% + translate(-50%)）重算导致的横向抖动 */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--paper);
   color: var(--ink);
