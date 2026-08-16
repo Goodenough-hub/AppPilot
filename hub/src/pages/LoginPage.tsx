@@ -35,7 +35,7 @@ export default function LoginPage() {
           <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'loading…' : '登录'}</button>
         </form>
         <div style={{ marginTop: 32, textAlign: 'center', fontSize: 'var(--fs-xs)', color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
-          hub v0.1 · admin only
+          hub v0.1 · 授权用户可用
         </div>
       </div>
     </div>

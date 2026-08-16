@@ -14,6 +14,7 @@ export interface AppMeta {
 export const SUPPORTED_APPS: AppMeta[] = [
   { code: 'finflow', name: 'FinFlow' },
   { code: 'typresume', name: 'TypResume' },
+  { code: 'hub', name: 'Hub' },
 ]
 
 export const SUPPORTED_APP_CODES = SUPPORTED_APPS.map(a => a.code)
