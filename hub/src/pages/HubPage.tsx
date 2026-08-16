@@ -114,6 +114,20 @@ export default function HubPage() {
   /** 拖拽状态重置（dragend/drop 后统一清） */
   const resetDrag = () => { setDragId(null); setDropHint(null) }
 
+  /**
+   * 计算落点 before/after。书签行（纵向列表）只看 y；prompt/skill 卡片是二维
+   * grid（一行多张、换行），需按行主序压平成一维：先比所在行（y 中心），同行
+   * 再比列（x 中心），与数组顺序严格一致，避免「放不对位置」。
+   */
+  const computeAfter = (e: React.DragEvent, halfAxis: 'y' | 'x'): boolean => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (halfAxis === 'y') return e.clientY > rect.top + rect.height / 2
+    // 卡片：二维行主序。行的容差取卡高的一半（行间距内也算同一行）
+    const rowDelta = e.clientY - (rect.top + rect.height / 2)
+    if (Math.abs(rowDelta) > rect.height / 2) return rowDelta > 0 // 跨行：下面的行=after
+    return e.clientX > rect.left + rect.width / 2 // 同行：比 x
+  }
+
   /** 条目本体（行/卡片）的拖拽 props；after 的判定轴由 halfAxis 决定 */
   const dragProps = (group: { folder: string; items: Item[] }, it: Item, i: number, halfAxis: 'y' | 'x') => ({
     draggable: true,
@@ -125,20 +139,12 @@ export default function HubPage() {
     onDragOver: (e: React.DragEvent) => {
       if (dragId == null) return
       e.preventDefault()
-      const rect = e.currentTarget.getBoundingClientRect()
-      const after = halfAxis === 'y'
-        ? e.clientY > rect.top + rect.height / 2
-        : e.clientX > rect.left + rect.width / 2
-      setDropHint({ id: it.id, after })
+      setDropHint({ id: it.id, after: computeAfter(e, halfAxis) })
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault()
       // after 直接从 drop 事件自身坐标算，不依赖可能因批处理而过期的 dropHint state
-      const rect = e.currentTarget.getBoundingClientRect()
-      const after = halfAxis === 'y'
-        ? e.clientY > rect.top + rect.height / 2
-        : e.clientX > rect.left + rect.width / 2
-      void dropOnItem(group, i, after)
+      void dropOnItem(group, i, computeAfter(e, halfAxis))
       resetDrag()
     },
     onDragEnd: resetDrag
