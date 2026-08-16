@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Star, Pencil, Trash2, Globe } from 'lucide-react'
 import type { Item } from '@/api/hub'
 import { domainOf } from '@/utils/format'
+import { faviconCandidates, saveCandidate, dropCandidate } from '@/utils/favicon'
 
 /** 取站点 origin（用于拼 favicon 地址）；非法 URL 返回 '' */
 function originOf(url: string | null | undefined): string {
@@ -12,9 +13,6 @@ function originOf(url: string | null | undefined): string {
     return ''
   }
 }
-
-/** 自动探测时的候选路径（按常见程度排序，onError 依次后移） */
-const FAVICON_PATHS = ['/favicon.ico', '/favicon.svg', '/favicon.png', '/apple-touch-icon.png']
 
 /** 书签紧凑行：图标 + 标题链接 + 域名 + hover 显现的操作（收藏/编辑/删除）。
  *  书签只为跳转服务，不用卡片；prompt/skill 仍用 ItemCard。 */
@@ -29,16 +27,28 @@ export function BookmarkRow({
 }) {
   const domain = domainOf(item.url)
   const origin = originOf(item.url)
-  // 图标候选：有自定义 icon 只用它；否则按候选路径依次探测。全部失败回落 Globe。
+  // 图标候选：有自定义 icon 只用它；否则按候选链探测（缓存的胜者排第一）。全部失败回落 Globe。
   const candidates = useMemo(() => {
     if (item.icon) return [item.icon]
     if (!origin) return []
-    return FAVICON_PATHS.map((p) => origin + p)
+    return faviconCandidates(origin)
   }, [item.icon, origin])
   const [failedCount, setFailedCount] = useState(0)
   // URL/自定义图标变化后从头重试
   useEffect(() => setFailedCount(0), [item.url, item.icon])
   const iconSrc = failedCount < candidates.length ? candidates[failedCount] : null
+
+  // 探测成功：缓存胜者（自定义 icon 不参与缓存）；全链失败：清掉该 origin 的过期缓存
+  const onIconLoad = () => {
+    if (!item.icon && origin && iconSrc) saveCandidate(origin, iconSrc)
+  }
+  const onIconError = () => {
+    setFailedCount((c) => {
+      const next = c + 1
+      if (!item.icon && origin && next >= candidates.length) dropCandidate(origin)
+      return next
+    })
+  }
 
   return (
     <div
@@ -53,7 +63,8 @@ export function BookmarkRow({
           height={14}
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setFailedCount((c) => c + 1)}
+          onLoad={onIconLoad}
+          onError={onIconError}
           style={{ flexShrink: 0, borderRadius: 3, width: 14, height: 14 }}
         />
       ) : (

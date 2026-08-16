@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BookmarkRow } from './BookmarkRow'
 import type { Item } from '@/api/hub'
 
@@ -20,6 +20,8 @@ function setup(item: Item = base) {
 }
 
 describe('BookmarkRow', () => {
+  beforeEach(() => localStorage.clear())
+
   it('标题渲染为新窗口打开的跳转链接，并显示域名', () => {
     setup()
     const link = screen.getByRole('link', { name: 'Infini-AI GitLab' })
@@ -103,5 +105,49 @@ describe('BookmarkRow', () => {
       <BookmarkRow item={{ ...base, url: null }} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
     )
     expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('有缓存时优先用缓存地址', () => {
+    localStorage.setItem('hub_favicon_cache', JSON.stringify({
+      'https://gitlab.infini-ai.com': 'https://gitlab.infini-ai.com/favicon.png'
+    }))
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    expect(container.querySelector('img')!.getAttribute('src')).toBe('https://gitlab.infini-ai.com/favicon.png')
+  })
+
+  it('探测成功（onLoad）后把胜者写入缓存', () => {
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    fireEvent.load(container.querySelector('img')!)
+    const cache = JSON.parse(localStorage.getItem('hub_favicon_cache')!)
+    expect(cache['https://gitlab.infini-ai.com']).toBe('https://gitlab.infini-ai.com/favicon.ico')
+  })
+
+  it('自定义 icon 加载成功不写缓存', () => {
+    const { container } = render(
+      <BookmarkRow item={{ ...base, icon: 'https://cdn.example.com/logo.png' }} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    fireEvent.load(container.querySelector('img')!)
+    expect(localStorage.getItem('hub_favicon_cache')).toBeNull()
+  })
+
+  it('全链失败后清掉该 origin 的过期缓存', () => {
+    localStorage.setItem('hub_favicon_cache', JSON.stringify({
+      'https://gitlab.infini-ai.com': 'https://gitlab.infini-ai.com/favicon.png'
+    }))
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    // 候选 = [favicon.png(缓存), favicon.ico, favicon.svg, apple-touch-icon.png]，共 4 个
+    for (let i = 0; i < 4; i++) {
+      fireEvent.error(container.querySelector('img')!)
+    }
+    expect(container.querySelector('img')).toBeNull()
+    const raw = localStorage.getItem('hub_favicon_cache')
+    const cache = raw ? JSON.parse(raw) : {}
+    expect(cache['https://gitlab.infini-ai.com']).toBeUndefined()
   })
 })
