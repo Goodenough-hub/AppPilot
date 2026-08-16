@@ -20,10 +20,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!token) return
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
+      // JWT base64url 解码：换掉 - _ 并补 = padding；atob 只吃标准 base64
+      const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+      const padded = b64 + '='.repeat((4 - b64.length % 4) % 4)
+      const payload = JSON.parse(atob(padded))
       setRole(payload.role ?? null)
       setUsername(payload.username ?? null)
-    } catch { /* invalid token structure, ignore */ }
+    } catch { /* invalid token 结构 */ }
   }, [token])
 
   const login = useCallback(async (u: string, p: string) => {
