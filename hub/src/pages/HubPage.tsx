@@ -22,6 +22,7 @@ export default function HubPage() {
   const [editing, setEditing] = useState<Item | undefined>(undefined)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [importMode, setImportMode] = useState<'merge' | 'replace' | null>(null)
+  const [importPayload, setImportPayload] = useState<Item[] | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
 
   const openAdd = () => { setEditing(undefined); setDialogOpen(true) }
@@ -75,14 +76,14 @@ export default function HubPage() {
       const parsed = JSON.parse(text)
       if (!Array.isArray(parsed)) throw new Error('文件不是 JSON 数组')
       setImportMode('merge')
-      ;(window as any).__hubImportPayload = parsed // consumed by the confirm dialog
+      setImportPayload(parsed)
     } catch (err: any) {
       toast.show(`解析失败：${err.message}`)
     }
   }
 
   const runImport = async (mode: 'merge' | 'replace') => {
-    const payload = (window as any).__hubImportPayload as Item[] | undefined
+    const payload = importPayload
     if (!payload) return
     try {
       const res = await itemsApi.importJson(payload, mode)
@@ -91,7 +92,7 @@ export default function HubPage() {
     } catch (e: any) {
       toast.show(`导入失败：${e?.message ?? 'unknown'}`)
     } finally {
-      ;(window as any).__hubImportPayload = undefined
+      setImportPayload(null)
       setImportMode(null)
     }
   }
@@ -155,7 +156,7 @@ export default function HubPage() {
         onConfirm={confirmDelete}
       />
 
-      {/* 导入模式选择 dialog */}
+      {/* import mode selection dialog */}
       <Dialog open={importMode !== null} onOpenChange={(v) => !v && setImportMode(null)}>
         <DialogTitle>导入 JSON</DialogTitle>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--ink-mid)', marginBottom: 24 }}>
