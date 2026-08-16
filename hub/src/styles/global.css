@@ -116,6 +116,18 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 
 /* 条目卡片：hover 浮起 + 动作行按需显现 */
+/* prompt/skill 卡片网格：容器宽 ≥ 1080（页面 max-width + 两侧 padding）时一行四列 */
+.card-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 1079.98px) {
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 719.98px) {
+  .card-grid { grid-template-columns: 1fr; }
+}
 .item-card {
   animation: rise 240ms ease both;
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;

@@ -37,7 +37,8 @@ export function ItemCard({
         background: 'var(--paper-lift)',
         border: '1px solid var(--rule)',
         borderRadius: 12,
-        padding: '20px 24px',
+        padding: '16px',
+        height: '100%',
         display: 'flex', flexDirection: 'column', gap: 12,
         animationDelay: `${Math.min(index, 8) * 35}ms`
       }}
@@ -59,8 +60,14 @@ export function ItemCard({
         </button>
       </div>
 
-      {/* title */}
-      <div style={{ fontSize: 'var(--fs-md)', color: 'var(--ink)', fontWeight: 500 }}>
+      {/* title：四列窄卡内截断单行，完整名见 tooltip */}
+      <div
+        title={item.title}
+        style={{
+          fontSize: 'var(--fs-sm)', color: 'var(--ink)', fontWeight: 500,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}
+      >
         {item.title}
       </div>
 

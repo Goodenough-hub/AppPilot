@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ItemCard } from './ItemCard'
+import { FolderSection } from './FolderSection'
 import type { Item } from '@/api/hub'
 
 const base: Item = {
@@ -81,5 +82,25 @@ describe('ItemCard', () => {
     expect(h.onToggleFav).toHaveBeenCalledWith(1, true)
     fireEvent.click(screen.getByText('#review'))
     expect(h.onTagClick).toHaveBeenCalledWith('review')
+  })
+})
+
+describe('FolderSection 卡片网格', () => {
+  it('非 dense（prompt/skill）用 card-grid 容器，一行四列样式挂全局 CSS', () => {
+    const { container } = render(
+      <FolderSection name="F" count={1} collapsed={false} onToggle={() => {}}>
+        <div>card</div>
+      </FolderSection>
+    )
+    expect(container.querySelector('.card-grid')).not.toBeNull()
+  })
+
+  it('dense（书签）保持纵向紧凑列表，不用网格', () => {
+    const { container } = render(
+      <FolderSection name="F" count={1} collapsed={false} onToggle={() => {}} dense>
+        <div>row</div>
+      </FolderSection>
+    )
+    expect(container.querySelector('.card-grid')).toBeNull()
   })
 })

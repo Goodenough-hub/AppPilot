@@ -65,8 +65,13 @@ export function FolderSection({ name, count, collapsed, onToggle, onRename, onDe
           <div style={{ padding: '8px 2px 8px 26px', fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)' }}>
             空文件夹
           </div>
+        ) : dense ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {children}
+          </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: dense ? 2 : 16 }}>
+          /* prompt/skill 卡片：桌面一行四列，窄屏自适应降列 */
+          <div className="card-grid">
             {children}
           </div>
         )
