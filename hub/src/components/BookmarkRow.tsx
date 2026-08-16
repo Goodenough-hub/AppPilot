@@ -1,6 +1,17 @@
+import { useState } from 'react'
 import { Star, Pencil, Trash2, Globe } from 'lucide-react'
 import type { Item } from '@/api/hub'
 import { domainOf } from '@/utils/format'
+
+/** 取站点 origin（用于拼 favicon 地址）；非法 URL 返回 '' */
+function originOf(url: string | null | undefined): string {
+  if (!url) return ''
+  try {
+    return new URL(url).origin
+  } catch {
+    return ''
+  }
+}
 
 /** 书签紧凑行：图标 + 标题链接 + 域名 + hover 显现的操作（收藏/编辑/删除）。
  *  书签只为跳转服务，不用卡片；prompt/skill 仍用 ItemCard。 */
@@ -14,13 +25,31 @@ export function BookmarkRow({
   onTagClick: (tag: string) => void
 }) {
   const domain = domainOf(item.url)
+  const origin = originOf(item.url)
+  // favicon 由浏览器直接向目标站点取（与浏览器书签同理）；加载失败（内网/无图标/http 混合内容被拦）回落 Globe。
+  // 按 origin 记录失败，URL 编辑后自动重试。
+  const [failedOrigin, setFailedOrigin] = useState<string | null>(null)
+  const showFavicon = origin !== '' && failedOrigin !== origin
 
   return (
     <div
       className="bookmark-row"
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px' }}
     >
-      <Globe size={14} style={{ color: 'var(--ink-dim)', flexShrink: 0 }} />
+      {showFavicon ? (
+        <img
+          src={`${origin}/favicon.ico`}
+          alt=""
+          width={14}
+          height={14}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailedOrigin(origin)}
+          style={{ flexShrink: 0, borderRadius: 3, width: 14, height: 14 }}
+        />
+      ) : (
+        <Globe size={14} style={{ color: 'var(--ink-dim)', flexShrink: 0 }} />
+      )}
 
       {item.url ? (
         <a

@@ -61,4 +61,31 @@ describe('BookmarkRow', () => {
     fireEvent.click(screen.getByText('#内网'))
     expect(h.onTagClick).toHaveBeenCalledWith('内网')
   })
+
+  it('有 URL 时渲染站点 favicon（no-referrer + lazy）', () => {
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    const img = container.querySelector('img')
+    expect(img).not.toBeNull()
+    expect(img!.getAttribute('src')).toBe('https://gitlab.infini-ai.com/favicon.ico')
+    expect(img!.getAttribute('referrerpolicy')).toBe('no-referrer')
+    expect(img!.getAttribute('loading')).toBe('lazy')
+  })
+
+  it('favicon 加载失败时回落为默认图标（img 移除）', () => {
+    const { container } = render(
+      <BookmarkRow item={base} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    const img = container.querySelector('img')!
+    fireEvent.error(img)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('无 URL 时不渲染 favicon', () => {
+    const { container } = render(
+      <BookmarkRow item={{ ...base, url: null }} onToggleFav={() => {}} onEdit={() => {}} onDelete={() => {}} onTagClick={() => {}} />
+    )
+    expect(container.querySelector('img')).toBeNull()
+  })
 })
