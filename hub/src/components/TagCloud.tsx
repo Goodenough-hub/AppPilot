@@ -9,10 +9,12 @@ export function TagCloud({
         <button
           onClick={() => onSelect(null)}
           aria-label={`清除标签 ${active}`}
+          className="chip"
           style={{
             fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)',
             background: 'var(--accent-tint)', color: 'var(--accent)',
-            borderRadius: 4, padding: '2px 8px'
+            border: '1px solid transparent',
+            borderRadius: 999, padding: '3px 10px'
           }}
         >
           #{active} ✕
@@ -23,10 +25,11 @@ export function TagCloud({
           key={t}
           onClick={() => onSelect(t)}
           aria-pressed={false}
+          className="chip"
           style={{
             fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)',
             color: 'var(--ink-dim)', border: '1px solid var(--rule)',
-            borderRadius: 4, padding: '2px 8px'
+            borderRadius: 999, padding: '3px 10px'
           }}
         >
           #{t}

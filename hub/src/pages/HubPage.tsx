@@ -109,7 +109,7 @@ export default function HubPage() {
       />
       <input ref={importFileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportChosen} />
 
-      <TabBar active={tab} onChange={setTab} />
+      <TabBar active={tab} onChange={setTab} counts={counts} />
       <div className="rule-b" />
       <TagCloud tags={allTags} active={tag} onSelect={setTag} />
       <div className="rule-b" style={{ marginBottom: 24 }} />
@@ -120,10 +120,11 @@ export default function HubPage() {
         <EmptyState message={items.length === 0 ? '空空如也。点右上 + 新增第一条' : '无匹配条目'} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {filtered.map((it) => (
+          {filtered.map((it, i) => (
             <ItemCard
               key={it.id}
               item={it}
+              index={i}
               onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
               onEdit={openEdit}
               onDelete={setConfirmDeleteId}

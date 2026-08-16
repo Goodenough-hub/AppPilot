@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Star, Copy, Check, Pencil, Trash2 } from 'lucide-react'
 import type { Item } from '@/api/hub'
 import { timeAgo, domainOf } from '@/utils/format'
 import { copyText } from '@/utils/copy'
@@ -10,9 +11,10 @@ const TYPE_LABEL: Record<Item['type'], string> = {
 }
 
 export function ItemCard({
-  item, onToggleFav, onEdit, onDelete, onTagClick
+  item, index = 0, onToggleFav, onEdit, onDelete, onTagClick
 }: {
   item: Item
+  index?: number
   onToggleFav: (id: number, next: boolean) => void
   onEdit: (item: Item) => void
   onDelete: (id: number) => void
@@ -30,25 +32,29 @@ export function ItemCard({
 
   return (
     <article
+      className="item-card"
       style={{
         background: 'var(--paper-lift)',
         border: '1px solid var(--rule)',
-        borderRadius: 8,
+        borderRadius: 12,
         padding: '20px 24px',
-        display: 'flex', flexDirection: 'column', gap: 12
+        display: 'flex', flexDirection: 'column', gap: 12,
+        animationDelay: `${Math.min(index, 8) * 35}ms`
       }}
     >
       {/* header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)' }}>
-          {TYPE_LABEL[item.type]} · {timeAgo(item.updatedAt)}
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--ink-mid)', letterSpacing: '0.08em' }}>
+          <span className="text-accent">{TYPE_LABEL[item.type]}</span>
+          <span style={{ letterSpacing: 0 }}> · {timeAgo(item.updatedAt)}</span>
         </div>
         <button
           aria-label={item.favorite ? '取消收藏' : '收藏'}
+          aria-pressed={item.favorite}
           onClick={() => onToggleFav(item.id, !item.favorite)}
-          style={{ color: item.favorite ? 'var(--accent)' : 'var(--ink-mid)', fontSize: 16 }}
+          style={{ display: 'flex', padding: 2, color: item.favorite ? 'var(--accent)' : 'var(--ink-dim)', transition: 'color 140ms ease, transform 140ms ease' }}
         >
-          {item.favorite ? '◆' : '◇'}
+          <Star size={15} fill={item.favorite ? 'currentColor' : 'none'} />
         </button>
       </div>
 
@@ -81,10 +87,12 @@ export function ItemCard({
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {item.tags.map((t) => (
             <button key={t} onClick={() => onTagClick(t)}
+              className="chip"
               style={{
                 fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)',
                 color: 'var(--ink-dim)', background: 'var(--paper-sink)',
-                borderRadius: 4, padding: '2px 8px'
+                border: '1px solid transparent',
+                borderRadius: 999, padding: '3px 10px'
               }}>
               #{t}
             </button>
@@ -92,15 +100,15 @@ export function ItemCard({
         </div>
       )}
 
-      {/* actions */}
-      <div className="rule-t" style={{ paddingTop: 12, display: 'flex', gap: 16, fontSize: 'var(--fs-sm)', color: 'var(--ink-mid)' }}>
+      {/* actions: hover 时显现（触屏常驻） */}
+      <div className="card-actions rule-t" style={{ paddingTop: 12, display: 'flex', gap: 18, fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-mid)' }}>
         {item.content && (
-          <button onClick={doCopy} style={{ color: copied ? 'var(--accent)' : 'inherit' }}>
-            {copied ? 'copied' : 'copy'}
+          <button onClick={doCopy} className="card-action" style={{ color: copied ? 'var(--accent)' : undefined }}>
+            {copied ? <><Check size={13} /> copied</> : <><Copy size={13} /> copy</>}
           </button>
         )}
-        <button onClick={() => onEdit(item)}>edit</button>
-        <button onClick={() => onDelete(item.id)}>delete</button>
+        <button onClick={() => onEdit(item)} className="card-action"><Pencil size={13} /> edit</button>
+        <button onClick={() => onDelete(item.id)} className="card-action danger" style={{ marginLeft: 'auto' }}><Trash2 size={13} /> delete</button>
       </div>
     </article>
   )

@@ -29,12 +29,12 @@ export function SearchBar({
       position: 'fixed', bottom: 24, left: 0, right: 0,
       display: 'grid', placeItems: 'center', pointerEvents: 'none', zIndex: 20
     }}>
-      <div style={{
+      <div className="search-pill" style={{
         pointerEvents: 'auto',
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--paper-lift)', border: '1px solid var(--rule)',
-        borderRadius: 8, padding: '8px 12px', minWidth: 360,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+        borderRadius: 999, padding: '10px 16px', width: 'min(440px, calc(100vw - 48px))',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.25)'
       }}>
         <Search size={14} color="var(--ink-mid)" />
         <input
@@ -43,7 +43,7 @@ export function SearchBar({
           onChange={(e) => onChange(e.target.value)}
           placeholder="搜索  ·  按 / 或 ⌘K 唤起"
           aria-label="搜索"
-          style={{ background: 'transparent', border: 'none', padding: 0, flex: 1, fontSize: 'var(--fs-sm)' }}
+          style={{ background: 'transparent', border: 'none', padding: 0, flex: 1, fontSize: 'var(--fs-sm)', minWidth: 0 }}
         />
         {value && (
           <button aria-label="清空" onClick={() => onChange('')} style={{ color: 'var(--ink-dim)', fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)' }}>✕</button>
