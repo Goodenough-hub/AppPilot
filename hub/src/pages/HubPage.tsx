@@ -40,7 +40,7 @@ export default function HubPage() {
   const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null)
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<{ id: number; name: string; count: number } | null>(null)
 
-  // 书签拖拽排序：dragId 为被拖条目，dropHint 指示落点（某行的上/下半区）
+  // 拖拽排序/移动：dragId 为被拖条目，dropHint 指示落点（行=上/下半区，卡片=左/右半区）
   const [dragId, setDragId] = useState<number | null>(null)
   const [dropHint, setDropHint] = useState<{ id: number; after: boolean } | null>(null)
 
@@ -76,23 +76,46 @@ export default function HubPage() {
     }
   }
 
-  /** 书签行落点换算 + 持久化（只支持同文件夹内重排；跨组拖动直接忽略） */
-  const dropOnRow = async (group: { folder: string; items: Item[] }, targetIndex: number, after: boolean) => {
+  /** 落点处理：同文件夹=组内重排；跨文件夹=改 folder + 写入目标组 position。书签行/卡片共用。 */
+  const dropOnItem = async (group: { folder: string; items: Item[] }, targetIndex: number, after: boolean) => {
     if (dragId == null) return
     const from = group.items.findIndex((x) => x.id === dragId)
-    if (from < 0) return // 拖的是别的文件夹的条目
     let to = targetIndex + (after ? 1 : 0)
-    if (from < to) to -= 1
+    if (from >= 0 && from < to) to -= 1
     if (from === to) return
-    const ids = moveItem(group.items.map((x) => x.id), from, to)
     try {
-      await reorder(tab, group.folder, ids)
+      if (from >= 0) {
+        // 同组重排：moveItem 的 to 是「移除 from 之后」的下标，直接给即可
+        await reorder(tab, group.folder, moveItem(group.items.map((x) => x.id), from, to))
+      } else {
+        // 跨组移动：先挪文件夹，再按落点持久化目标组 position（hook 内均为乐观更新）
+        const ids = group.items.map((x) => x.id)
+        ids.splice(to, 0, dragId)
+        await update(dragId, { folder: group.folder })
+        await reorder(tab, group.folder, ids)
+        toast.show(`已移动到「${group.folder || '未分类'}」`)
+      }
     } catch (e: any) {
-      toast.show(`排序失败：${e?.message ?? 'unknown'}`)
+      toast.show(`移动失败：${e?.message ?? 'unknown'}`)
     }
   }
 
-  const rowDragProps = (group: { folder: string; items: Item[] }, it: Item, i: number) => ({
+  /** 落在空文件夹的空态区：追加到组尾 */
+  const dropOnEmpty = async (group: { folder: string; items: Item[] }) => {
+    if (dragId == null || group.items.length > 0) return
+    if (group.items.some((x) => x.id === dragId)) return
+    try {
+      await update(dragId, { folder: group.folder })
+    } catch (e: any) {
+      toast.show(`移动失败：${e?.message ?? 'unknown'}`)
+    }
+  }
+
+  /** 拖拽状态重置（dragend/drop 后统一清） */
+  const resetDrag = () => { setDragId(null); setDropHint(null) }
+
+  /** 条目本体（行/卡片）的拖拽 props；after 的判定轴由 halfAxis 决定 */
+  const dragProps = (group: { folder: string; items: Item[] }, it: Item, i: number, halfAxis: 'y' | 'x') => ({
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
       e.dataTransfer.effectAllowed = 'move'
@@ -103,15 +126,28 @@ export default function HubPage() {
       if (dragId == null) return
       e.preventDefault()
       const rect = e.currentTarget.getBoundingClientRect()
-      setDropHint({ id: it.id, after: e.clientY > rect.top + rect.height / 2 })
+      const after = halfAxis === 'y'
+        ? e.clientY > rect.top + rect.height / 2
+        : e.clientX > rect.left + rect.width / 2
+      setDropHint({ id: it.id, after })
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault()
-      void dropOnRow(group, i, dropHint?.id === it.id ? dropHint.after : false)
-      setDragId(null)
-      setDropHint(null)
+      // after 直接从 drop 事件自身坐标算，不依赖可能因批处理而过期的 dropHint state
+      const rect = e.currentTarget.getBoundingClientRect()
+      const after = halfAxis === 'y'
+        ? e.clientY > rect.top + rect.height / 2
+        : e.clientX > rect.left + rect.width / 2
+      void dropOnItem(group, i, after)
+      resetDrag()
     },
-    onDragEnd: () => { setDragId(null); setDropHint(null) }
+    onDragEnd: resetDrag
+  })
+
+  /** 空文件夹空态区作为落点（接收拖入） */
+  const emptyDropProps = (group: { folder: string; items: Item[] }) => ({
+    onDragOver: (e: React.DragEvent) => { if (dragId != null) e.preventDefault() },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); void dropOnEmpty(group); resetDrag() }
   })
 
   const submitFolder = async (name: string) => {
@@ -223,21 +259,24 @@ export default function HubPage() {
               onRename={g.folderId != null ? () => setFolderDialog({ mode: 'rename', id: g.folderId!, name: g.folder }) : undefined}
               onDelete={g.folderId != null ? () => setConfirmDeleteFolder({ id: g.folderId!, name: g.folder, count: g.items.length }) : undefined}
               dense={tab === 'bookmark'}
+              emptyDrop={emptyDropProps(g)}
             >
               {g.items.map((it, i) => (
-                tab === 'bookmark' ? (
-                  <div
-                    key={it.id}
-                    {...rowDragProps(g, it, i)}
-                    style={{
-                      cursor: dragId === it.id ? 'grabbing' : 'grab',
-                      opacity: dragId === it.id ? 0.45 : 1,
-                      boxShadow: dropHint?.id === it.id
+                <div
+                  key={it.id}
+                  {...dragProps(g, it, i, tab === 'bookmark' ? 'y' : 'x')}
+                  style={{
+                    cursor: dragId === it.id ? 'grabbing' : 'grab',
+                    opacity: dragId === it.id ? 0.45 : 1,
+                    boxShadow: dropHint?.id === it.id
+                      ? tab === 'bookmark'
                         ? (dropHint.after ? '0 2px 0 var(--accent)' : '0 -2px 0 var(--accent)')
-                        : undefined,
-                      borderRadius: 8
-                    }}
-                  >
+                        : (dropHint.after ? '2px 0 0 var(--accent)' : '-2px 0 0 var(--accent)')
+                      : undefined,
+                    borderRadius: tab === 'bookmark' ? 8 : 12
+                  }}
+                >
+                  {tab === 'bookmark' ? (
                     <BookmarkRow
                       item={it}
                       onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
@@ -245,18 +284,17 @@ export default function HubPage() {
                       onDelete={setConfirmDeleteId}
                       onTagClick={setTag}
                     />
-                  </div>
-                ) : (
-                  <ItemCard
-                    key={it.id}
-                    item={it}
-                    index={i}
-                    onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
-                    onEdit={openEdit}
-                    onDelete={setConfirmDeleteId}
-                    onTagClick={setTag}
-                  />
-                )
+                  ) : (
+                    <ItemCard
+                      item={it}
+                      index={i}
+                      onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
+                      onEdit={openEdit}
+                      onDelete={setConfirmDeleteId}
+                      onTagClick={setTag}
+                    />
+                  )}
+                </div>
               ))}
             </FolderSection>
           ))}

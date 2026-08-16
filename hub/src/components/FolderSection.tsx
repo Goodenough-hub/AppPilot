@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import { ChevronRight, ChevronDown, Folder, Inbox, Pencil, Trash2 } from 'lucide-react'
 
 interface Props {
@@ -12,11 +12,16 @@ interface Props {
   onDelete?: () => void
   /** 紧凑模式（书签行列表）：缩小条目间距 */
   dense?: boolean
+  /** 空文件夹空态区的拖放接收（跨组移动落入空文件夹） */
+  emptyDrop?: {
+    onDragOver: (e: DragEvent) => void
+    onDrop: (e: DragEvent) => void
+  }
   children: ReactNode
 }
 
 /** 文件夹分组：头部点击收起/展开；hover 显现重命名/删除操作 */
-export function FolderSection({ name, count, collapsed, onToggle, onRename, onDelete, dense, children }: Props) {
+export function FolderSection({ name, count, collapsed, onToggle, onRename, onDelete, dense, emptyDrop, children }: Props) {
   const uncategorized = name === ''
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -62,7 +67,10 @@ export function FolderSection({ name, count, collapsed, onToggle, onRename, onDe
 
       {!collapsed && (
         count === 0 ? (
-          <div style={{ padding: '8px 2px 8px 26px', fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)' }}>
+          <div
+            {...emptyDrop}
+            style={{ padding: '8px 2px 8px 26px', fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)' }}
+          >
             空文件夹
           </div>
         ) : dense ? (
