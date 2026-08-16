@@ -66,6 +66,14 @@ describe('ItemCard', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
   })
 
+  it('复制失败时弹「复制失败」提示而非成功', async () => {
+    writeText.mockRejectedValue(new Error('denied'))
+    document.execCommand = vi.fn().mockReturnValue(false)
+    setup()
+    fireEvent.click(screen.getByLabelText('复制内容'))
+    expect(await screen.findByText('复制失败', { selector: '[class], div, span' })).toBeInTheDocument()
+  })
+
   it('键盘 Enter/Space 在内容块上也触发复制', async () => {
     setup()
     const block = screen.getByTitle('点击复制内容')

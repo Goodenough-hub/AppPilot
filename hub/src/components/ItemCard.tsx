@@ -27,10 +27,14 @@ export function ItemCard({
 
   const doCopy = async () => {
     if (!item.content) return
-    await copyText(item.content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1200)
-    toast.show('已复制')
+    try {
+      await copyText(item.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+      toast.show('已复制')
+    } catch {
+      toast.show('复制失败')
+    }
   }
 
   return (
@@ -97,7 +101,7 @@ export function ItemCard({
             border: '1px solid var(--rule)',
             borderRadius: 8,
             padding: '12px 40px 12px 14px',
-            cursor: 'copy',
+            cursor: 'pointer',
             fontSize: 'var(--fs-sm)',
             fontFamily: 'var(--font-mono)',
             color: 'var(--ink-mid)',
