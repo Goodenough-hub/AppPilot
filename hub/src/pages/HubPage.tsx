@@ -3,6 +3,7 @@ import { Header } from '@/components/Header'
 import { TabBar } from '@/components/TabBar'
 import { TagCloud } from '@/components/TagCloud'
 import { ItemCard } from '@/components/ItemCard'
+import { BookmarkRow } from '@/components/BookmarkRow'
 import { SearchBar } from '@/components/SearchBar'
 import { ItemDialog } from '@/components/ItemDialog'
 import { FolderDialog } from '@/components/FolderDialog'
@@ -178,17 +179,29 @@ export default function HubPage() {
               onToggle={() => toggleCollapsed(tab, g.folder)}
               onRename={g.folderId != null ? () => setFolderDialog({ mode: 'rename', id: g.folderId!, name: g.folder }) : undefined}
               onDelete={g.folderId != null ? () => setConfirmDeleteFolder({ id: g.folderId!, name: g.folder, count: g.items.length }) : undefined}
+              dense={tab === 'bookmark'}
             >
               {g.items.map((it, i) => (
-                <ItemCard
-                  key={it.id}
-                  item={it}
-                  index={i}
-                  onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
-                  onEdit={openEdit}
-                  onDelete={setConfirmDeleteId}
-                  onTagClick={setTag}
-                />
+                tab === 'bookmark' ? (
+                  <BookmarkRow
+                    key={it.id}
+                    item={it}
+                    onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
+                    onEdit={openEdit}
+                    onDelete={setConfirmDeleteId}
+                    onTagClick={setTag}
+                  />
+                ) : (
+                  <ItemCard
+                    key={it.id}
+                    item={it}
+                    index={i}
+                    onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
+                    onEdit={openEdit}
+                    onDelete={setConfirmDeleteId}
+                    onTagClick={setTag}
+                  />
+                )
               ))}
             </FolderSection>
           ))}

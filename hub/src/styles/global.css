@@ -131,6 +131,12 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 .item-card:hover .card-actions,
 .item-card:focus-within .card-actions { opacity: 1; }
+
+/* 书签紧凑行：hover 底色 + 动作按需显现（动作复用 .card-actions/.card-action） */
+.bookmark-row { border-radius: 8px; transition: background 140ms ease; }
+.bookmark-row:hover { background: var(--paper-lift); }
+.bookmark-row:hover .card-actions,
+.bookmark-row:focus-within .card-actions { opacity: 1; }
 /* 触屏无 hover，动作行常驻 */
 @media (hover: none) {
   .card-actions { opacity: 1; }

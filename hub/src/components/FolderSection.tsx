@@ -10,11 +10,13 @@ interface Props {
   /** 仅在文件夹已登记（有 id）时提供；未分类/孤儿名无管理操作 */
   onRename?: () => void
   onDelete?: () => void
+  /** 紧凑模式（书签行列表）：缩小条目间距 */
+  dense?: boolean
   children: ReactNode
 }
 
 /** 文件夹分组：头部点击收起/展开；hover 显现重命名/删除操作 */
-export function FolderSection({ name, count, collapsed, onToggle, onRename, onDelete, children }: Props) {
+export function FolderSection({ name, count, collapsed, onToggle, onRename, onDelete, dense, children }: Props) {
   const uncategorized = name === ''
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -64,7 +66,7 @@ export function FolderSection({ name, count, collapsed, onToggle, onRename, onDe
             空文件夹
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: dense ? 2 : 16 }}>
             {children}
           </div>
         )
