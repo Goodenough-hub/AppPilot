@@ -322,3 +322,53 @@ func TestHandlerFolders(t *testing.T) {
 		t.Fatalf("expected 404 for re-delete, got %d", w.Code)
 	}
 }
+
+func TestHandlerReorderItems(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 建 3 条同文件夹书签
+	ids := []int64{}
+	for _, title := range []string{"A", "B", "C"} {
+		w := doJSON(r, "POST", "/hub/items", map[string]any{"type": "bookmark", "title": title, "folder": "F"})
+		if w.Code != http.StatusCreated {
+			t.Fatalf("seed %s: %d", title, w.Code)
+		}
+		var it Item
+		_ = json.Unmarshal(w.Body.Bytes(), &it)
+		ids = append(ids, it.ID)
+	}
+
+	// 重排为 [C, A, B] → 204，GET 验证顺序
+	w := doJSON(r, "POST", "/hub/items/order", map[string]any{
+		"type": "bookmark", "folder": "F", "ids": []int64{ids[2], ids[0], ids[1]},
+	})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("reorder code=%d body=%s", w.Code, w.Body.String())
+	}
+	w = doJSON(r, "GET", "/hub/items", nil)
+	var items []Item
+	_ = json.Unmarshal(w.Body.Bytes(), &items)
+	got := []string{}
+	for _, it := range items {
+		if it.Folder == "F" {
+			got = append(got, it.Title)
+		}
+	}
+	if len(got) != 3 || got[0] != "C" || got[1] != "A" || got[2] != "B" {
+		t.Fatalf("order after reorder: %v", got)
+	}
+
+	// 非法 type → 400；空 ids → 400；不存在的 id → 404
+	w = doJSON(r, "POST", "/hub/items/order", map[string]any{"type": "note", "folder": "F", "ids": ids})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid type, got %d", w.Code)
+	}
+	w = doJSON(r, "POST", "/hub/items/order", map[string]any{"type": "bookmark", "folder": "F", "ids": []int64{}})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty ids, got %d", w.Code)
+	}
+	w = doJSON(r, "POST", "/hub/items/order", map[string]any{"type": "bookmark", "folder": "F", "ids": []int64{999999}})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing id, got %d", w.Code)
+	}
+}

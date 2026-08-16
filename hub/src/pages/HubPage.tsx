@@ -17,13 +17,14 @@ import { useFolders } from '@/hooks/useFolders'
 import { useCollapsedFolders } from '@/hooks/useCollapsedFolders'
 import { useToast } from '@/components/ui/Toast'
 import { groupByFolder } from '@/utils/group'
+import { moveItem } from '@/utils/reorder'
 import { itemsApi, type Item } from '@/api/hub'
 
 /** 文件夹对话框状态：新建 / 重命名 */
 type FolderDialogState = { mode: 'create' } | { mode: 'rename'; id: number; name: string } | null
 
 export default function HubPage() {
-  const { items, loading, create, update, remove, reload } = useItems()
+  const { items, loading, create, update, remove, reload, reorder } = useItems()
   const { tab, setTab, tag, setTag, query, setQuery, filtered, counts, allTags } = useFilter(items)
   const { folders, create: createFolder, rename: renameFolder, remove: removeFolder, reload: reloadFolders } = useFolders()
   const { isCollapsed, toggle: toggleCollapsed } = useCollapsedFolders()
@@ -38,6 +39,10 @@ export default function HubPage() {
 
   const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null)
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<{ id: number; name: string; count: number } | null>(null)
+
+  // 书签拖拽排序：dragId 为被拖条目，dropHint 指示落点（某行的上/下半区）
+  const [dragId, setDragId] = useState<number | null>(null)
+  const [dropHint, setDropHint] = useState<{ id: number; after: boolean } | null>(null)
 
   // 当前 tab 的条目按文件夹分组；搜索/标签过滤激活时隐藏空分组（平时保留，让新建的空文件夹可见）
   const groups = useMemo(() => groupByFolder(filtered, folders[tab]), [filtered, folders, tab])
@@ -70,6 +75,44 @@ export default function HubPage() {
       setConfirmDeleteId(null)
     }
   }
+
+  /** 书签行落点换算 + 持久化（只支持同文件夹内重排；跨组拖动直接忽略） */
+  const dropOnRow = async (group: { folder: string; items: Item[] }, targetIndex: number, after: boolean) => {
+    if (dragId == null) return
+    const from = group.items.findIndex((x) => x.id === dragId)
+    if (from < 0) return // 拖的是别的文件夹的条目
+    let to = targetIndex + (after ? 1 : 0)
+    if (from < to) to -= 1
+    if (from === to) return
+    const ids = moveItem(group.items.map((x) => x.id), from, to)
+    try {
+      await reorder(tab, group.folder, ids)
+    } catch (e: any) {
+      toast.show(`排序失败：${e?.message ?? 'unknown'}`)
+    }
+  }
+
+  const rowDragProps = (group: { folder: string; items: Item[] }, it: Item, i: number) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', String(it.id))
+      setDragId(it.id)
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (dragId == null) return
+      e.preventDefault()
+      const rect = e.currentTarget.getBoundingClientRect()
+      setDropHint({ id: it.id, after: e.clientY > rect.top + rect.height / 2 })
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      void dropOnRow(group, i, dropHint?.id === it.id ? dropHint.after : false)
+      setDragId(null)
+      setDropHint(null)
+    },
+    onDragEnd: () => { setDragId(null); setDropHint(null) }
+  })
 
   const submitFolder = async (name: string) => {
     if (!folderDialog) return
@@ -183,14 +226,26 @@ export default function HubPage() {
             >
               {g.items.map((it, i) => (
                 tab === 'bookmark' ? (
-                  <BookmarkRow
+                  <div
                     key={it.id}
-                    item={it}
-                    onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
-                    onEdit={openEdit}
-                    onDelete={setConfirmDeleteId}
-                    onTagClick={setTag}
-                  />
+                    {...rowDragProps(g, it, i)}
+                    style={{
+                      cursor: dragId === it.id ? 'grabbing' : 'grab',
+                      opacity: dragId === it.id ? 0.45 : 1,
+                      boxShadow: dropHint?.id === it.id
+                        ? (dropHint.after ? '0 2px 0 var(--accent)' : '0 -2px 0 var(--accent)')
+                        : undefined,
+                      borderRadius: 8
+                    }}
+                  >
+                    <BookmarkRow
+                      item={it}
+                      onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
+                      onEdit={openEdit}
+                      onDelete={setConfirmDeleteId}
+                      onTagClick={setTag}
+                    />
+                  </div>
                 ) : (
                   <ItemCard
                     key={it.id}

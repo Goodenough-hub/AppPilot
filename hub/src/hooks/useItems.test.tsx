@@ -5,7 +5,7 @@ import { itemsApi, type Item } from '@/api/hub'
 
 const sample: Item = {
   id: 1, type: 'bookmark', title: 'X', url: null, content: null,
-  tags: [], favorite: false, folder: '', icon: '', createdAt: '', updatedAt: ''
+  tags: [], favorite: false, folder: '', icon: '', position: 0, createdAt: '', updatedAt: ''
 }
 
 describe('useItems', () => {
@@ -57,5 +57,33 @@ describe('useItems', () => {
       act(async () => { await result.current.remove(1) })
     ).rejects.toThrow('boom')
     expect(result.current.items).toEqual([sample])
+  })
+
+  it('reorder 乐观重排本地顺序并调 api 持久化', async () => {
+    const a = { ...sample, id: 1, title: 'A' }
+    const b = { ...sample, id: 2, title: 'B' }
+    const c = { ...sample, id: 3, title: 'C' }
+    vi.spyOn(itemsApi, 'list').mockResolvedValue([a, b, c])
+    const spy = vi.spyOn(itemsApi, 'reorder').mockResolvedValue()
+    const { result } = renderHook(() => useItems())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.reorder('bookmark', 'F', [3, 1, 2]) })
+    expect(spy).toHaveBeenCalledWith('bookmark', 'F', [3, 1, 2])
+    // 组内相对顺序已按新序排好（重排条目被移到末尾段，内部顺序 [C, A, B]）
+    const reordered = result.current.items.filter((i) => [3, 1, 2].includes(i.id))
+    expect(reordered.map((i) => i.title)).toEqual(['C', 'A', 'B'])
+  })
+
+  it('reorder 失败回滚原有顺序', async () => {
+    const a = { ...sample, id: 1, title: 'A' }
+    const b = { ...sample, id: 2, title: 'B' }
+    vi.spyOn(itemsApi, 'list').mockResolvedValue([a, b])
+    vi.spyOn(itemsApi, 'reorder').mockRejectedValue(new Error('boom'))
+    const { result } = renderHook(() => useItems())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await expect(
+      act(async () => { await result.current.reorder('bookmark', 'F', [2, 1]) })
+    ).rejects.toThrow('boom')
+    expect(result.current.items.map((i) => i.id)).toEqual([1, 2])
   })
 })

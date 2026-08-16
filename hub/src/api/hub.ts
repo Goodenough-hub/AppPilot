@@ -14,6 +14,8 @@ export interface Item {
   folder: string
   /** 自定义图标 URL；'' 表示按站点 favicon 自动探测 */
   icon: string
+  /** 文件夹内手动排序位（0 = 未排序） */
+  position: number
   createdAt: string
   updatedAt: string
 }
@@ -48,7 +50,11 @@ export const itemsApi = {
   remove: async (id: number): Promise<void> => { await apiClient.delete(`/hub/items/${id}`) },
   exportJson: async (): Promise<Item[]> => (await apiClient.get<Item[]>('/hub/export')).data,
   importJson: async (items: Item[], mode: 'merge' | 'replace' = 'merge'): Promise<{ affected: number; mode: string }> =>
-    (await apiClient.post(`/hub/import`, items, { params: { mode } })).data
+    (await apiClient.post(`/hub/import`, items, { params: { mode } })).data,
+  /** 把某 (type, folder) 分组内的条目按 orderedIds 顺序持久化（position 1..n） */
+  reorder: async (type: ItemType, folder: string, orderedIds: number[]): Promise<void> => {
+    await apiClient.post('/hub/items/order', { type, folder, ids: orderedIds })
+  }
 }
 
 /** 文件夹（按类型隔离命名空间；同名在不同 type 下互不相干） */

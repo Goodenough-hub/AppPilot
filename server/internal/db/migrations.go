@@ -435,6 +435,7 @@ CREATE TABLE IF NOT EXISTS hub_items (
     favorite    BOOLEAN NOT NULL DEFAULT FALSE,
     folder      VARCHAR(200) NOT NULL DEFAULT '',
     icon        TEXT NOT NULL DEFAULT '',
+    position    INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT hub_items_type_valid CHECK (type IN ('bookmark','prompt','skill'))
@@ -460,10 +461,11 @@ func MigrateHub(db *sql.DB) error {
 	if _, err := db.Exec(hubSchema); err != nil {
 		return err
 	}
-	// 增量迁移：老库 hub_items 补 folder / icon 列
+	// 增量迁移：老库 hub_items 补 folder / icon / position 列
 	stmts := []string{
 		`ALTER TABLE hub_items ADD COLUMN IF NOT EXISTS folder VARCHAR(200) NOT NULL DEFAULT ''`,
 		`ALTER TABLE hub_items ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hub_items ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

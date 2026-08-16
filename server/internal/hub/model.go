@@ -22,8 +22,9 @@ type Item struct {
 	Content   *string   `json:"content"` // 可空
 	Tags      []string  `json:"tags"`
 	Favorite  bool      `json:"favorite"`
-	Folder    string    `json:"folder"` // 文件夹名，空串 = 未分类；命名空间随 item.Type
-	Icon      string    `json:"icon"`   // 自定义图标 URL，空串 = 按站点 favicon 自动探测
+	Folder    string    `json:"folder"`   // 文件夹名，空串 = 未分类；命名空间随 item.Type
+	Icon      string    `json:"icon"`     // 自定义图标 URL，空串 = 按站点 favicon 自动探测
+	Position  int       `json:"position"` // 文件夹内手动排序位（0 = 未排序，排过的为 1..n）
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

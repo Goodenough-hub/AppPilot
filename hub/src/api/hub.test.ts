@@ -32,6 +32,12 @@ describe('itemsApi', () => {
     await itemsApi.remove(2)
     expect(spy).toHaveBeenCalledWith('/hub/items/2')
   })
+
+  it('reorder 请求 POST /hub/items/order', async () => {
+    const spy = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: null })
+    await itemsApi.reorder('bookmark', 'Infini-AI', [3, 1, 2])
+    expect(spy).toHaveBeenCalledWith('/hub/items/order', { type: 'bookmark', folder: 'Infini-AI', ids: [3, 1, 2] })
+  })
 })
 
 describe('foldersApi', () => {

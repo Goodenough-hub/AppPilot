@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { itemsApi, type Item, type ItemInput, type ItemPatch } from '@/api/hub'
+import { itemsApi, type Item, type ItemInput, type ItemPatch, type ItemType } from '@/api/hub'
 
 export function useItems() {
   const [items, setItems] = useState<Item[]>([])
@@ -51,5 +51,22 @@ export function useItems() {
     }
   }, [items])
 
-  return { items, loading, error, reload, create, update, remove }
+  // 拖拽排序：先乐观重排本地顺序，再持久化 position；失败回滚并抛错
+  const reorder = useCallback(async (type: ItemType, folder: string, orderedIds: number[]) => {
+    const idSet = new Set(orderedIds)
+    const prev = items
+    setItems((cur) => {
+      const byId = new Map(cur.filter((i) => idSet.has(i.id)).map((i) => [i.id, i]))
+      const reordered = orderedIds.map((id) => byId.get(id)).filter((i): i is Item => !!i)
+      return [...cur.filter((i) => !idSet.has(i.id)), ...reordered]
+    })
+    try {
+      await itemsApi.reorder(type, folder, orderedIds)
+    } catch (e) {
+      setItems(prev)
+      throw e
+    }
+  }, [items])
+
+  return { items, loading, error, reload, create, update, remove, reorder }
 }

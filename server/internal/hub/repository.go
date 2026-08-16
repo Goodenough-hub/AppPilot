@@ -57,14 +57,15 @@ type UpdatePatch struct {
 	Icon     *string
 }
 
-// List 返回 user_id 作用域下的全部条目，
-// 排序：favorite 优先，updated_at 降序。
+// List 返回 user_id 作用域下的全部条目。
+// 排序：position 升序（0 = 未手动排序，并列时回退）→ favorite 优先 → updated_at 降序。
+// 即：从未拖过的文件夹保持旧的「收藏优先+时间序」，拖过的文件夹按手动顺序。
 func (r *Repository) List(userID int64) ([]Item, error) {
 	rows, err := r.db.Query(`
-SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, created_at, updated_at
+SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, position, created_at, updated_at
 FROM hub_items
 WHERE user_id = $1
-ORDER BY favorite DESC, updated_at DESC`, userID)
+ORDER BY position ASC, favorite DESC, updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +74,7 @@ ORDER BY favorite DESC, updated_at DESC`, userID)
 	for rows.Next() {
 		var it Item
 		var tags pq.StringArray
-		if err := rows.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.Position, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			return nil, err
 		}
 		it.Tags = []string(tags)
@@ -179,11 +180,11 @@ func (r *Repository) Delete(userID, id int64) error {
 
 func (r *Repository) findByID(userID, id int64) (*Item, error) {
 	row := r.db.QueryRow(`
-SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, created_at, updated_at
+SELECT id, user_id, type, title, url, content, tags, favorite, folder, icon, position, created_at, updated_at
 FROM hub_items WHERE user_id = $1 AND id = $2`, userID, id)
 	var it Item
 	var tags pq.StringArray
-	if err := row.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.CreatedAt, &it.UpdatedAt); err != nil {
+	if err := row.Scan(&it.ID, &it.UserID, &it.Type, &it.Title, &it.URL, &it.Content, &tags, &it.Favorite, &it.Folder, &it.Icon, &it.Position, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -394,6 +395,37 @@ WHERE user_id = $1 AND id = $2 FOR UPDATE`, userID, id).Scan(&typ, &name)
 UPDATE hub_items SET folder = ''
 WHERE user_id = $1 AND type = $2 AND folder = $3`, userID, typ, name); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+// ReorderItems 把 (userID, typ, folder) 作用域内、ids 指定的条目按给定顺序写入 position（1..n）。
+// 不触碰 updated_at（排序不是内容编辑，不应影响「最近更新」展示）。
+// ids 中任何不属于该作用域的 id 都会使整个操作失败（ErrNotFound）；未列入的条目 position 不变。
+func (r *Repository) ReorderItems(userID int64, typ, folder string, ids []int64) error {
+	if len(ids) == 0 {
+		return errors.New("ids required")
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var n int
+	if err := tx.QueryRow(`
+SELECT count(*) FROM hub_items
+WHERE user_id = $1 AND type = $2 AND folder = $3 AND id = ANY($4)`,
+		userID, typ, folder, pq.Int64Array(ids)).Scan(&n); err != nil {
+		return err
+	}
+	if n != len(ids) {
+		return ErrNotFound
+	}
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE hub_items SET position = $1 WHERE user_id = $2 AND id = $3`, i+1, userID, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

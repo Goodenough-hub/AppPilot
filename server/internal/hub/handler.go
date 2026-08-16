@@ -25,6 +25,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.DELETE("/items/:id", h.remove)
 	rg.GET("/export", h.export)
 	rg.POST("/import", h.importBatch)
+	rg.POST("/items/order", h.reorderItems)
 	rg.GET("/folders", h.listFolders)
 	rg.POST("/folders", h.createFolder)
 	rg.PATCH("/folders/:id", h.renameFolder)
@@ -199,6 +200,39 @@ func (h *Handler) importBatch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"affected": n, "mode": mode})
+}
+
+// reorderItems：把某个 (type, folder) 分组内的条目按 ids 顺序写入 position。
+type reorderRequest struct {
+	Type   string  `json:"type"`
+	Folder string  `json:"folder"`
+	IDs    []int64 `json:"ids"`
+}
+
+func (h *Handler) reorderItems(c *gin.Context) {
+	var req reorderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// 探针校验 type 合法性（Name 用占位符绕过非空校验）
+	if err := (&Folder{Type: req.Type, Name: "x"}).Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid type"})
+		return
+	}
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids required"})
+		return
+	}
+	if err := h.repo.ReorderItems(userIDOf(c), req.Type, req.Folder, req.IDs); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // ---- folders ----

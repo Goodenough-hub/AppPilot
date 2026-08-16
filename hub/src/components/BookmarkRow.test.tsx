@@ -5,7 +5,7 @@ import type { Item } from '@/api/hub'
 
 const base: Item = {
   id: 1, type: 'bookmark', title: 'Infini-AI GitLab', url: 'https://gitlab.infini-ai.com/',
-  content: null, tags: [], favorite: false, folder: 'Infini-AI', icon: '', createdAt: '', updatedAt: ''
+  content: null, tags: [], favorite: false, folder: 'Infini-AI', icon: '', position: 0, createdAt: '', updatedAt: ''
 }
 
 function setup(item: Item = base) {

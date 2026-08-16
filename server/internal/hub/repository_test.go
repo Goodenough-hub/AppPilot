@@ -41,6 +41,7 @@ CREATE TABLE hub_items (
     favorite BOOLEAN NOT NULL DEFAULT FALSE,
     folder VARCHAR(200) NOT NULL DEFAULT '',
     icon TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`)
@@ -462,5 +463,71 @@ func TestImportUpsertsFolders(t *testing.T) {
 	pm, _ := repo.ListFolders(1, "prompt")
 	if len(pm) != 1 || pm[0].Name != "写作" {
 		t.Fatalf("prompt folders: %+v", pm)
+	}
+}
+
+func TestReorderItems(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	repo := NewRepository(db)
+
+	// 同文件夹 3 条 + 另一文件夹 1 条 + 另一用户 1 条
+	a, _ := repo.Create(1, &Item{Type: "bookmark", Title: "A", Folder: "F"})
+	b, _ := repo.Create(1, &Item{Type: "bookmark", Title: "B", Folder: "F"})
+	c, _ := repo.Create(1, &Item{Type: "bookmark", Title: "C", Folder: "F"})
+	other, _ := repo.Create(1, &Item{Type: "bookmark", Title: "X", Folder: "G"})
+	u2, _ := repo.Create(2, &Item{Type: "bookmark", Title: "U2", Folder: "F"})
+
+	// 初始 position 全 0
+	items, _ := repo.List(1)
+	for _, it := range items {
+		if it.Position != 0 {
+			t.Fatalf("initial position should be 0, got %+v", items)
+		}
+	}
+
+	// 重排为 [C, A, B] → position 1,2,3；List 按手动序返回
+	if err := repo.ReorderItems(1, "bookmark", "F", []int64{c.ID, a.ID, b.ID}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	items, _ = repo.List(1)
+	got := []string{}
+	for _, it := range items {
+		if it.Folder == "F" {
+			got = append(got, it.Title)
+		}
+	}
+	if len(got) != 3 || got[0] != "C" || got[1] != "A" || got[2] != "B" {
+		t.Fatalf("manual order mismatch: %v", got)
+	}
+	pos := map[int64]int{}
+	for _, it := range items {
+		pos[it.ID] = it.Position
+	}
+	if pos[c.ID] != 1 || pos[a.ID] != 2 || pos[b.ID] != 3 {
+		t.Fatalf("positions mismatch: %v", pos)
+	}
+	// 未列入的条目 position 不变
+	if pos[other.ID] != 0 || pos[u2.ID] != 0 {
+		t.Fatalf("untouched items position changed: %v", pos)
+	}
+
+	// 混入别的文件夹/别的用户的 id → ErrNotFound，且已有顺序不被破坏
+	if err := repo.ReorderItems(1, "bookmark", "F", []int64{a.ID, other.ID}); err != ErrNotFound {
+		t.Fatalf("want ErrNotFound for foreign id, got %v", err)
+	}
+	if err := repo.ReorderItems(1, "bookmark", "F", []int64{u2.ID}); err != ErrNotFound {
+		t.Fatalf("want ErrNotFound for other user's id, got %v", err)
+	}
+	items, _ = repo.List(1)
+	for _, it := range items {
+		if it.ID == c.ID && it.Position != 1 {
+			t.Fatalf("failed reorder should not disturb positions: %+v", items)
+		}
+	}
+
+	// 空 ids → 报错
+	if err := repo.ReorderItems(1, "bookmark", "F", []int64{}); err == nil {
+		t.Fatalf("expected error for empty ids")
 	}
 }
