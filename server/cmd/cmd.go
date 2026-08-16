@@ -14,6 +14,7 @@ import (
 	"apppilot-server/internal/dashboard"
 	"apppilot-server/internal/db"
 	"apppilot-server/internal/finflow"
+	"apppilot-server/internal/hub"
 	"apppilot-server/internal/middleware"
 	"apppilot-server/internal/typresume"
 	"apppilot-server/pkg/config"
@@ -133,6 +134,16 @@ func serve(cfg *config.Config) error {
 		v1.Group("/admin"),
 		middleware.AuthRequired(cfg.JWTSecret),
 		middleware.AdminRequired(),
+	)
+
+	// Hub：私人书签/Prompts/Skills 工作台。复用 admin 账号 + 主 JWT。
+	hubRepo := hub.NewRepository(pg)
+	hubHandler := hub.NewHandler(hubRepo)
+	hubHandler.Register(
+		v1.Group("/hub",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.AdminRequired(),
+		),
 	)
 
 	klog.Infof("listening on %s", cfg.Address)
