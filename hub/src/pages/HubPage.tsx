@@ -273,6 +273,7 @@ export default function HubPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         initial={editing}
+        defaultType={tab}
         foldersByType={folders}
         onSubmit={submitItem}
       />

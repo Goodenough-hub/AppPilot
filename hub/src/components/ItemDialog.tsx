@@ -8,6 +8,8 @@ interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
   initial?: Item
+  /** 新增模式下的默认类型（传当前 Tab；编辑模式忽略，以 initial.type 为准） */
+  defaultType?: ItemType
   /** 各类型下的文件夹目录（文件夹候选随对话框内所选 type 联动） */
   foldersByType: Record<ItemType, Folder[]>
   onSubmit: (input: ItemInput) => Promise<void>
@@ -23,7 +25,7 @@ function parseTags(input: string): string[] {
   return input.split(',').map(s => s.trim()).filter(Boolean)
 }
 
-export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmit }: Props) {
+export function ItemDialog({ open, onOpenChange, initial, defaultType = 'bookmark', foldersByType, onSubmit }: Props) {
   const [type, setType] = useState<ItemType>('bookmark')
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
@@ -48,9 +50,9 @@ export function ItemDialog({ open, onOpenChange, initial, foldersByType, onSubmi
       setIcon(initial.icon)
       setFavorite(initial.favorite)
     } else {
-      setType('bookmark'); setTitle(''); setUrl(''); setContent(''); setTags(''); setFolder(''); setIcon(''); setFavorite(false)
+      setType(defaultType); setTitle(''); setUrl(''); setContent(''); setTags(''); setFolder(''); setIcon(''); setFavorite(false)
     }
-  }, [open, initial])
+  }, [open, initial, defaultType])
 
   const canGh = type === 'skill' && !!parseRepo(url)
 
