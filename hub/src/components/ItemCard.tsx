@@ -72,14 +72,42 @@ export function ItemCard({
         </a>
       )}
 
-      {/* content preview */}
+      {/* content block：整块可点击复制，右上角常驻 copy 按钮 */}
       {item.content && (
-        <div style={{
-          fontSize: 'var(--fs-sm)', color: 'var(--ink-mid)',
-          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
-          overflow: 'hidden'
-        }}>
+        <div
+          className="content-block"
+          role="button"
+          tabIndex={0}
+          title="点击复制内容"
+          onClick={() => void doCopy()}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void doCopy() } }}
+          style={{
+            position: 'relative',
+            background: 'var(--paper-sink)',
+            border: '1px solid var(--rule)',
+            borderRadius: 8,
+            padding: '12px 40px 12px 14px',
+            cursor: 'copy',
+            fontSize: 'var(--fs-sm)',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--ink-mid)',
+            whiteSpace: 'pre-wrap',
+            display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          }}
+        >
           {item.content}
+          <button
+            aria-label={copied ? '已复制' : '复制内容'}
+            onClick={(e) => { e.stopPropagation(); void doCopy() }}
+            style={{
+              position: 'absolute', top: 8, right: 8, display: 'flex',
+              padding: 4, borderRadius: 6, background: 'var(--paper-lift)',
+              color: copied ? 'var(--accent)' : 'var(--ink-dim)', transition: 'color 140ms ease'
+            }}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
         </div>
       )}
 
@@ -101,13 +129,8 @@ export function ItemCard({
         </div>
       )}
 
-      {/* actions: hover 时显现（触屏常驻） */}
+      {/* actions: hover 时显现（触屏常驻）；copy 在内容块上常驻，不在这里重复 */}
       <div className="card-actions rule-t" style={{ paddingTop: 12, display: 'flex', gap: 18, fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-mid)' }}>
-        {item.content && (
-          <button onClick={doCopy} className="card-action" style={{ color: copied ? 'var(--accent)' : undefined }}>
-            {copied ? <><Check size={13} /> copied</> : <><Copy size={13} /> copy</>}
-          </button>
-        )}
         <button onClick={() => onEdit(item)} className="card-action"><Pencil size={13} /> edit</button>
         <button onClick={() => onDelete(item.id)} className="card-action danger" style={{ marginLeft: 'auto' }}><Trash2 size={13} /> delete</button>
       </div>

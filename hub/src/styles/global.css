@@ -125,6 +125,9 @@ input:focus, textarea:focus { border-color: var(--accent); }
   border-color: var(--rule-strong);
   box-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.45);
 }
+/* prompt/skill 内容块：hover 时描边加深，暗示整块可点击复制 */
+.content-block { transition: border-color 140ms ease; }
+.content-block:hover { border-color: var(--rule-strong); }
 .card-actions {
   opacity: 0;
   transition: opacity 140ms ease;
