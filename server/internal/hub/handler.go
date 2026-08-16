@@ -16,7 +16,7 @@ func NewHandler(repo *Repository) *Handler {
 	return &Handler{repo: repo}
 }
 
-// Register 挂路由。调用者负责在 rg 上先叠好 AuthRequired + AdminRequired。
+// Register 挂路由。调用者负责在 rg 上先叠好 AuthRequired + AppScopeRequired("hub")。
 func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.GET("/items", h.list)
 	rg.POST("/items", h.create)

@@ -136,13 +136,13 @@ func serve(cfg *config.Config) error {
 		middleware.AdminRequired(),
 	)
 
-	// Hub：私人书签/Prompts/Skills 工作台。复用 admin 账号 + 主 JWT。
+	// Hub：私人书签/Prompts/Skills 工作台。主 JWT + hub 应用授权（admin 直通）。
 	hubRepo := hub.NewRepository(pg)
 	hubHandler := hub.NewHandler(hubRepo)
 	hubHandler.Register(
 		v1.Group("/hub",
 			middleware.AuthRequired(cfg.JWTSecret),
-			middleware.AdminRequired(),
+			middleware.AppScopeRequired("hub"),
 		),
 	)
 
