@@ -12,7 +12,7 @@ interface Props {
   onDelete?: () => void
   /** 紧凑模式（书签行列表）：缩小条目间距 */
   dense?: boolean
-  /** 空文件夹空态区的拖放接收（跨组移动落入空文件夹） */
+  /** 整个组区块（含头部/空态区）的拖放接收：拖入=移动到该文件夹。条目卡上的 drop 优先（e.stopPropagation） */
   emptyDrop?: {
     onDragOver: (e: DragEvent) => void
     onDrop: (e: DragEvent) => void
@@ -20,11 +20,14 @@ interface Props {
   children: ReactNode
 }
 
-/** 文件夹分组：头部点击收起/展开；hover 显现重命名/删除操作 */
+/** 文件夹分组：头部点击收起/展开；hover 显现重命名/删除操作；组区块可接收跨组拖放 */
 export function FolderSection({ name, count, collapsed, onToggle, onRename, onDelete, dense, emptyDrop, children }: Props) {
   const uncategorized = name === ''
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <section
+      {...emptyDrop}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+    >
       <div
         className="folder-header"
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 2px' }}
@@ -67,11 +70,14 @@ export function FolderSection({ name, count, collapsed, onToggle, onRename, onDe
 
       {!collapsed && (
         count === 0 ? (
-          <div
-            {...emptyDrop}
-            style={{ padding: '8px 2px 8px 26px', fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)' }}
-          >
-            空文件夹
+          /* 空文件夹：给足可命中的 drop 高度（HTML5 拖拽 hit-test 需要真实可见的元素区域），
+             虚线框暗示可拖入 */
+          <div style={{
+            padding: '8px 2px 8px 26px', minHeight: 64, display: 'flex', alignItems: 'center',
+            fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)',
+            border: '1px dashed var(--rule)', borderRadius: 8
+          }}>
+            空文件夹 · 可拖入条目
           </div>
         ) : dense ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -40,8 +40,10 @@ export default function HubPage() {
   const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null)
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<{ id: number; name: string; count: number } | null>(null)
 
-  // 拖拽排序/移动：dragId 为被拖条目，dropHint 指示落点（行=上/下半区，卡片=左/右半区）
-  const [dragId, setDragId] = useState<number | null>(null)
+  // 拖拽排序/移动：dragId 用 ref（dragstart→drop 同一帧内读写，避开 state 批处理竞态）；
+  // dropHint 仅用于视觉指示线，用 state 即可
+  const dragIdRef = useRef<number | null>(null)
+  const [dragId, setDragId] = useState<number | null>(null) // 仅驱动「被拖条目半透明/抓手光标」视觉
   const [dropHint, setDropHint] = useState<{ id: number; after: boolean } | null>(null)
 
   // 当前 tab 的条目按文件夹分组；搜索/标签过滤激活时隐藏空分组（平时保留，让新建的空文件夹可见）
@@ -76,8 +78,9 @@ export default function HubPage() {
     }
   }
 
-  /** 落点处理：同文件夹=组内重排；跨文件夹=改 folder + 写入目标组 position。书签行/卡片共用。 */
+  /** 落点处理：同文件夹=组内重排；跨文件夹=改 folder + 重排目标组原有条目（被拖条目落到组尾）。书签行/卡片共用。 */
   const dropOnItem = async (group: { folder: string; items: Item[] }, targetIndex: number, after: boolean) => {
+    const dragId = dragIdRef.current
     if (dragId == null) return
     const from = group.items.findIndex((x) => x.id === dragId)
     let to = targetIndex + (after ? 1 : 0)
@@ -88,9 +91,10 @@ export default function HubPage() {
         // 同组重排：moveItem 的 to 是「移除 from 之后」的下标，直接给即可
         await reorder(tab, group.folder, moveItem(group.items.map((x) => x.id), from, to))
       } else {
-        // 跨组移动：先挪文件夹，再按落点持久化目标组 position（hook 内均为乐观更新）
+        // 跨组移动：先 await 改 folder（PATCH 落库后被拖条目才属目标组），再 reorder
+        // 含被拖条目按落点插入。串行保证 reorder 作用域校验（ids 须全属目标组）通过。
         const ids = group.items.map((x) => x.id)
-        ids.splice(to, 0, dragId)
+        ids.splice(Math.max(0, Math.min(to, ids.length)), 0, dragId)
         await update(dragId, { folder: group.folder })
         await reorder(tab, group.folder, ids)
         toast.show(`已移动到「${group.folder || '未分类'}」`)
@@ -100,19 +104,31 @@ export default function HubPage() {
     }
   }
 
-  /** 落在空文件夹的空态区：追加到组尾 */
-  const dropOnEmpty = async (group: { folder: string; items: Item[] }) => {
-    if (dragId == null || group.items.length > 0) return
-    if (group.items.some((x) => x.id === dragId)) return
+  /** 组级落点（拖到文件夹头/空白/空态区，未精确命中某条目卡）：移动到该文件夹组尾 */
+  const dropOnGroup = async (group: { folder: string; items: Item[] }) => {
+    const dragId = dragIdRef.current
+    if (dragId == null) return
+    const already = group.items.some((x) => x.id === dragId)
     try {
-      await update(dragId, { folder: group.folder })
+      if (already) {
+        // 同组拖到空白：移到组尾
+        const ids = group.items.map((x) => x.id)
+        const from = ids.indexOf(dragId)
+        await reorder(tab, group.folder, moveItem(ids, from, ids.length - 1))
+      } else {
+        // 跨组拖到空白：改 folder（落组尾）+ 重排目标组（含被拖条目在尾部）
+        await update(dragId, { folder: group.folder })
+        const ids = [...group.items.map((x) => x.id), dragId]
+        await reorder(tab, group.folder, ids)
+        toast.show(`已移动到「${group.folder || '未分类'}」`)
+      }
     } catch (e: any) {
       toast.show(`移动失败：${e?.message ?? 'unknown'}`)
     }
   }
 
   /** 拖拽状态重置（dragend/drop 后统一清） */
-  const resetDrag = () => { setDragId(null); setDropHint(null) }
+  const resetDrag = () => { dragIdRef.current = null; setDragId(null); setDropHint(null) }
 
   /**
    * 计算落点 before/after。书签行（纵向列表）只看 y；prompt/skill 卡片是二维
@@ -134,26 +150,28 @@ export default function HubPage() {
     onDragStart: (e: React.DragEvent) => {
       e.dataTransfer.effectAllowed = 'move'
       e.dataTransfer.setData('text/plain', String(it.id))
-      setDragId(it.id)
+      dragIdRef.current = it.id
+      setDragId(it.id) // 仅驱动视觉（被拖条目半透明）
     },
     onDragOver: (e: React.DragEvent) => {
-      if (dragId == null) return
+      if (dragIdRef.current == null) return
       e.preventDefault()
       setDropHint({ id: it.id, after: computeAfter(e, halfAxis) })
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault()
-      // after 直接从 drop 事件自身坐标算，不依赖可能因批处理而过期的 dropHint state
+      e.stopPropagation() // 条目卡上的 drop 优先，不冒泡到 FolderSection 的组级落点
+      // after 直接从 drop 事件自身坐标算；dragId 读 ref，均不依赖可能因批处理而过期的 state
       void dropOnItem(group, i, computeAfter(e, halfAxis))
       resetDrag()
     },
     onDragEnd: resetDrag
   })
 
-  /** 空文件夹空态区作为落点（接收拖入） */
+  /** 组级落点 props：整个组区块（文件夹头/空白/空态区）接收拖入，移到该文件夹 */
   const emptyDropProps = (group: { folder: string; items: Item[] }) => ({
-    onDragOver: (e: React.DragEvent) => { if (dragId != null) e.preventDefault() },
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); void dropOnEmpty(group); resetDrag() }
+    onDragOver: (e: React.DragEvent) => { if (dragIdRef.current != null) e.preventDefault() },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); void dropOnGroup(group); resetDrag() }
   })
 
   const submitFolder = async (name: string) => {

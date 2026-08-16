@@ -86,16 +86,17 @@ describe('HubPage 拖拽', () => {
     expect(mockItems.update).not.toHaveBeenCalled()
   })
 
-  it('拖到空文件夹的空态区：改 folder 追加，无需 reorder', async () => {
+  it('拖到空文件夹（组级落点）：改 folder 并写入 position', async () => {
     setupPage(['工作', '空组', '个人'])
     const a1 = await screen.findByText('A1')
-    const emptyZone = await screen.findByText('空文件夹')
+    const emptyZone = await screen.findByText(/空文件夹/)
     fireEvent.dragStart(rowOf(a1), { dataTransfer: dt() })
     fireEvent.dragOver(emptyZone, { dataTransfer: dt() })
     fireEvent.drop(emptyZone, { dataTransfer: dt() })
 
     await waitFor(() => expect(mockItems.update).toHaveBeenCalledWith(1, { folder: '空组' }))
-    expect(mockItems.reorder).not.toHaveBeenCalled()
+    // 组级落点：被拖条目追加到组尾并持久化 position
+    await waitFor(() => expect(mockItems.reorder).toHaveBeenCalledWith('bookmark', '空组', [1]))
   })
 
   it('prompt/skill 卡片也可拖拽（落点按左右半区判定）', async () => {
