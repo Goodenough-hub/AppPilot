@@ -7,6 +7,7 @@ import { SearchBar } from '@/components/SearchBar'
 import { ItemDialog } from '@/components/ItemDialog'
 import { EmptyState } from '@/components/EmptyState'
 import { AlertDialog } from '@/components/ui/AlertDialog'
+import { Dialog, DialogTitle } from '@/components/ui/Dialog'
 import { useItems } from '@/hooks/useItems'
 import { useFilter } from '@/hooks/useFilter'
 import { useToast } from '@/components/ui/Toast'
@@ -154,15 +155,19 @@ export default function HubPage() {
         onConfirm={confirmDelete}
       />
 
-      <AlertDialog
-        open={importMode !== null}
-        onOpenChange={(v) => !v && setImportMode(null)}
-        title="导入 JSON"
-        description="merge：按 ID 合并（默认，安全）；replace：清空后全插入（不可撤销）。"
-        confirmText="merge"
-        cancelText="replace / 取消"
-        onConfirm={() => runImport('merge')}
-      />
+      {/* 导入模式选择 dialog */}
+      <Dialog open={importMode !== null} onOpenChange={(v) => !v && setImportMode(null)}>
+        <DialogTitle>导入 JSON</DialogTitle>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--ink-mid)', marginBottom: 24 }}>
+          <p style={{ margin: '0 0 8px' }}><strong>merge</strong>：按 id 合并（既有则更新，缺失则新增）。安全。</p>
+          <p style={{ margin: 0 }}><strong>replace</strong>：先清空所有条目再全部插入。不可撤销。</p>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+          <button onClick={() => setImportMode(null)} style={{ color: 'var(--ink-mid)' }}>取消</button>
+          <button onClick={() => runImport('replace')} style={{ color: 'var(--accent)', fontWeight: 500 }}>replace</button>
+          <button onClick={() => runImport('merge')} className="btn-primary">merge</button>
+        </div>
+      </Dialog>
     </div>
   )
 }
