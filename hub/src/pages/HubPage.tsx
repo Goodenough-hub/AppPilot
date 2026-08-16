@@ -74,7 +74,7 @@ export default function HubPage() {
       const parsed = JSON.parse(text)
       if (!Array.isArray(parsed)) throw new Error('文件不是 JSON 数组')
       setImportMode('merge')
-      ;(window as any).__hubImportPayload = parsed // 由 confirm dialog 消费
+      ;(window as any).__hubImportPayload = parsed // consumed by the confirm dialog
     } catch (err: any) {
       toast.show(`解析失败：${err.message}`)
     }
@@ -122,7 +122,7 @@ export default function HubPage() {
             <ItemCard
               key={it.id}
               item={it}
-              onToggleFav={(id, next) => update(id, { favorite: next })}
+              onToggleFav={(id, next) => update(id, { favorite: next }).catch((e: any) => toast.show(`收藏失败：${e?.message ?? 'unknown'}`))}
               onEdit={openEdit}
               onDelete={setConfirmDeleteId}
               onTagClick={setTag}
