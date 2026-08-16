@@ -27,7 +27,7 @@ export function Header({ totalCount, starredCount, typeCount, onAdd, onExport, o
           </button>
           <button aria-label="导出" onClick={onExport} className="text-mid" style={{ display: 'flex', padding: 4 }}><Download size={16} /></button>
           <button aria-label="导入" onClick={onImport} className="text-mid" style={{ display: 'flex', padding: 4 }}><Upload size={16} /></button>
-          <button aria-label="新增" onClick={onAdd} className="btn-primary" style={{ padding: '6px 12px', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> 新增</button>
+          <button onClick={onAdd} className="btn-primary" style={{ padding: '6px 12px', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> 新增</button>
         </div>
       </div>
       <div className="rule-b" />

@@ -8,6 +8,7 @@ export function TagCloud({
       {active && (
         <button
           onClick={() => onSelect(null)}
+          aria-label={`清除标签 ${active}`}
           style={{
             fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)',
             background: 'var(--accent-tint)', color: 'var(--accent)',
@@ -21,6 +22,7 @@ export function TagCloud({
         <button
           key={t}
           onClick={() => onSelect(t)}
+          aria-pressed={false}
           style={{
             fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-mono)',
             color: 'var(--ink-dim)', border: '1px solid var(--rule)',

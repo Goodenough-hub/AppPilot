@@ -17,6 +17,7 @@ export function TabBar({ active, onChange }: { active: TabKey; onChange: (k: Tab
           <button
             key={t.key}
             onClick={() => onChange(t.key)}
+            aria-current={isActive ? 'page' : undefined}
             style={{
               fontSize: 'var(--fs-md)',
               color: isActive ? 'var(--ink)' : 'var(--ink-mid)',
