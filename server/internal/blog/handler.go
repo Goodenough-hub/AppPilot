@@ -108,6 +108,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	// Tag 列表 + Project 管理：仅 admin
 	studioAdmin := rg.Group("", blogAuth, h.adminOnlyGuard())
 	studioAdmin.GET("/tags", h.listTags)
+	studioAdmin.PATCH("/tags", h.renameTag)
 	studioAdmin.POST("/projects", h.createProject)
 	studioAdmin.PATCH("/projects/:id", h.updateProject)
 	studioAdmin.DELETE("/projects/:id", h.deleteProject)
@@ -780,6 +781,43 @@ func (h *Handler) listTags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tags": tags})
 }
 
+func (h *Handler) renameTag(c *gin.Context) {
+	var req RenameTagRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.OldName = strings.TrimSpace(req.OldName)
+	req.NewName = strings.TrimSpace(req.NewName)
+	if req.OldName == "" || req.NewName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "标签名称不能为空"})
+		return
+	}
+	if req.OldName == req.NewName {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "新标签名称不能与原名称相同"})
+		return
+	}
+
+	updated, err := h.repo.RenameTag(blogUserID(c), req.OldName, req.NewName)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrTagNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "标签不存在"})
+		case errors.Is(err, ErrConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": "标签名称已存在"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "rename_tag", req.OldName+" -> "+req.NewName)
+	c.JSON(http.StatusOK, gin.H{
+		"oldName":       req.OldName,
+		"newName":       req.NewName,
+		"updatedDrafts": updated,
+	})
+}
+
 // unpublish 把已发布草稿撤回为草稿（保留 visibility，仅改 status）。
 func (h *Handler) unpublish(c *gin.Context) {
 	id, ok := parseIDParam(c, "id")
@@ -871,6 +909,14 @@ func (h *Handler) updateProject(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "项目名称不能为空"})
+			return
+		}
+		req.Name = &name
 	}
 	p, err := h.repo.UpdateProject(blogUserID(c), id, req)
 	if err != nil {

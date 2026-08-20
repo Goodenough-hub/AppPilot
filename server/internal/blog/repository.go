@@ -619,6 +619,72 @@ func (r *Repository) ListTags(userID int64) ([]string, error) {
 	return tags, rows.Err()
 }
 
+// RenameTag 全局重命名当前用户的标签，并同步历史版本，确保已发布快照立即生效。
+func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var oldExists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(
+			SELECT 1 FROM blog_drafts WHERE user_id = $1 AND $2 = ANY(tags)
+		)`,
+		userID, oldName,
+	).Scan(&oldExists); err != nil {
+		return 0, err
+	}
+	if !oldExists {
+		return 0, ErrTagNotFound
+	}
+
+	var newExists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(
+			SELECT 1 FROM blog_drafts WHERE user_id = $1 AND $2 = ANY(tags)
+			UNION ALL
+			SELECT 1 FROM blog_draft_versions v
+			JOIN blog_drafts d ON d.id = v.draft_id
+			WHERE d.user_id = $1 AND $2 = ANY(v.tags)
+		)`,
+		userID, newName,
+	).Scan(&newExists); err != nil {
+		return 0, err
+	}
+	if newExists {
+		return 0, ErrConflict
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE blog_draft_versions v
+		 SET tags = array_replace(v.tags, $1, $2)
+		 FROM blog_drafts d
+		 WHERE v.draft_id = d.id AND d.user_id = $3 AND $1 = ANY(v.tags)`,
+		oldName, newName, userID,
+	); err != nil {
+		return 0, err
+	}
+	res, err := tx.Exec(
+		`UPDATE blog_drafts
+		 SET tags = array_replace(tags, $1, $2), updated_at = NOW()
+		 WHERE user_id = $3 AND $1 = ANY(tags)`,
+		oldName, newName, userID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return updated, nil
+}
+
 // UnpublishDraft 撤回：status=draft（保留 visibility、published_at、published_version）。
 func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
 	d, err := r.scanDraftRet(func(dst ...any) error {

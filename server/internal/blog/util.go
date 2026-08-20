@@ -14,6 +14,7 @@ var (
 	ErrDraftNotFound    = errors.New("draft not found")
 	ErrConflict         = errors.New("optimistic lock conflict")
 	ErrProjectNotFound  = errors.New("project not found")
+	ErrTagNotFound      = errors.New("tag not found")
 )
 
 // slugRegexp 允许小写字母、数字、连字符与中文（Han），全站唯一。

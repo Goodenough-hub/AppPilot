@@ -350,6 +350,66 @@ func TestSearchPublic(t *testing.T) {
 	}
 }
 
+// TestRenameTag 同步更新草稿与已发布快照，并禁止改成已存在的标签。
+func TestRenameTag(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	d, err := repo.CreateDraft(uid, Draft{
+		Slug: "tag-rename", Title: "Tag Rename", Tags: []string{"旧标签"}, Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	publishForTest(t, repo, d.ID)
+	if _, err := repo.CreateDraft(uid, Draft{
+		Slug: "existing-tag", Title: "Existing", Tags: []string{"已有标签"},
+	}); err != nil {
+		t.Fatalf("create conflict draft: %v", err)
+	}
+	otherUser, err := repo.Create("other-blog-user", "secret123")
+	if err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	otherDraft, err := repo.CreateDraft(otherUser.ID, Draft{
+		Slug: "other-tag", Title: "Other", Tags: []string{"旧标签"},
+	})
+	if err != nil {
+		t.Fatalf("create other draft: %v", err)
+	}
+
+	updated, err := repo.RenameTag(uid, "旧标签", "新标签")
+	if err != nil || updated != 1 {
+		t.Fatalf("rename tag: updated=%d err=%v", updated, err)
+	}
+	current, err := repo.GetDraft(uid, d.ID)
+	if err != nil || len(current.Tags) != 1 || current.Tags[0] != "新标签" {
+		t.Fatalf("current tags = %v err=%v, want [新标签]", current.Tags, err)
+	}
+	published, err := repo.GetPublishedPublicBySlug(d.Slug)
+	if err != nil || len(published.Tags) != 1 || published.Tags[0] != "新标签" {
+		t.Fatalf("published tags = %v err=%v, want [新标签]", published.Tags, err)
+	}
+
+	if _, err := repo.RenameTag(uid, "新标签", "已有标签"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("rename to existing tag: err=%v want ErrConflict", err)
+	}
+	if _, err := repo.RenameTag(uid, "不存在", "另一个标签"); !errors.Is(err, ErrTagNotFound) {
+		t.Fatalf("rename missing tag: err=%v want ErrTagNotFound", err)
+	}
+	afterConflict, _ := repo.GetDraft(uid, d.ID)
+	if len(afterConflict.Tags) != 1 || afterConflict.Tags[0] != "新标签" {
+		t.Fatalf("tags changed after conflict: %v", afterConflict.Tags)
+	}
+
+	otherCurrent, _ := repo.GetDraft(otherUser.ID, otherDraft.ID)
+	if len(otherCurrent.Tags) != 1 || otherCurrent.Tags[0] != "旧标签" {
+		t.Fatalf("other user tags = %v, want [旧标签]", otherCurrent.Tags)
+	}
+}
+
 // TestProjectCRUD 创建、重命名冲突、删除后 draft.project_id 变 NULL。
 func TestProjectCRUD(t *testing.T) {
 	pg := testDSN(t)
@@ -376,6 +436,22 @@ func TestProjectCRUD(t *testing.T) {
 	}
 	if d.ProjectID == nil || *d.ProjectID != p.ID {
 		t.Fatalf("draft projectID = %v, want %d", d.ProjectID, p.ID)
+	}
+	renamed, err := repo.UpdateProject(uid, p.ID, UpdateProjectRequest{Name: strPtr("新项目名")})
+	if err != nil || renamed.Name != "新项目名" {
+		t.Fatalf("rename project: project=%+v err=%v", renamed, err)
+	}
+	dAfterRename, err := repo.GetDraft(uid, d.ID)
+	if err != nil || dAfterRename.ProjectName == nil || *dAfterRename.ProjectName != "新项目名" {
+		t.Fatalf("draft project name after rename = %v err=%v", dAfterRename.ProjectName, err)
+	}
+	otherProject, err := repo.CreateProject(uid, Project{Name: "另一个项目"})
+	if err != nil {
+		t.Fatalf("create other project: %v", err)
+	}
+	_, err = repo.UpdateProject(uid, otherProject.ID, UpdateProjectRequest{Name: strPtr("新项目名")})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("rename project to existing name: err=%v want ErrConflict", err)
 	}
 
 	if err := repo.DeleteProject(uid, p.ID); err != nil {
