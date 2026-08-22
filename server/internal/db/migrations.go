@@ -190,6 +190,10 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// Split the legacy housing utility category while preserving existing references.
+	if err := migrateSplitHousingUtilities(db); err != nil {
+		return err
+	}
 	// 业务迁移：老用户「住房」补「酒店」（物业后）
 	if err := migrateInsertAfterParent(db, "住房", "物业", []seedNode{
 		{Name: "酒店", Icon: "🏨", Color: "#3B82F6"},

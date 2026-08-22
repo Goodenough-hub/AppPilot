@@ -51,10 +51,11 @@ var expenseTree = []seedNode{
 	}},
 	{Name: "住房", Icon: "🏠", Color: "#10B981", Order: 4, Children: []seedNode{
 		{Name: "租金", Icon: "🔑", Color: "#10B981", Order: 100},
-		{Name: "水电", Icon: "⚡", Color: "#F59E0B", Order: 101},
-		{Name: "物业", Icon: "🏢", Color: "#3B82F6", Order: 102},
-		{Name: "酒店", Icon: "🏨", Color: "#3B82F6", Order: 103},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
+		{Name: "水费", Icon: "💧", Color: "#06B6D4", Order: 101},
+		{Name: "电费", Icon: "⚡", Color: "#F59E0B", Order: 102},
+		{Name: "物业", Icon: "🏢", Color: "#3B82F6", Order: 103},
+		{Name: "酒店", Icon: "🏨", Color: "#3B82F6", Order: 104},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
 	}},
 	{Name: "娱乐", Icon: "🎮", Color: "#F59E0B", Order: 5, Children: []seedNode{
 		{Name: "游戏", Icon: "🎮", Color: "#F59E0B", Order: 100, Children: []seedNode{
@@ -864,6 +865,175 @@ func migrateCategoryIconsToBrand(db *sql.DB) error {
 			r.Icon, r.Color, r.Name,
 		); err != nil {
 			return fmt.Errorf("rewrite icon for %s: %w", r.Name, err)
+		}
+	}
+	return nil
+}
+
+// migrateSplitHousingUtilities splits housing utilities into water and electricity.
+// Renaming the old category preserves its references. If water already exists, old
+// references are merged into it before deleting the obsolete category. It is idempotent.
+func migrateSplitHousingUtilities(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT id, user_id FROM categories
+		 WHERE name = '住房' AND type = 'expense' AND parent_id IS NULL
+		   AND scope = 'normal' AND is_system = TRUE`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type housing struct {
+		ID     int64
+		UserID int64
+	}
+	var roots []housing
+	for rows.Next() {
+		var root housing
+		if err := rows.Scan(&root.ID, &root.UserID); err != nil {
+			return err
+		}
+		roots = append(roots, root)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, root := range roots {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(`SELECT id FROM categories WHERE id = $1 FOR UPDATE`, root.ID); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("lock 住房 for user %d: %w", root.UserID, err)
+		}
+
+		oldRows, err := tx.Query(
+			`SELECT id FROM categories
+			 WHERE parent_id = $1 AND name = '水电' AND type = 'expense'
+			   AND scope = 'normal' AND is_system = TRUE ORDER BY id`, root.ID,
+		)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("find 住房·水电 for user %d: %w", root.UserID, err)
+		}
+		var oldIDs []int64
+		for oldRows.Next() {
+			var oldID int64
+			if err := oldRows.Scan(&oldID); err != nil {
+				oldRows.Close()
+				tx.Rollback()
+				return err
+			}
+			oldIDs = append(oldIDs, oldID)
+		}
+		if err := oldRows.Err(); err != nil {
+			oldRows.Close()
+			tx.Rollback()
+			return err
+		}
+		oldRows.Close()
+
+		var waterID int64
+		waterErr := tx.QueryRow(
+			`SELECT id FROM categories WHERE parent_id = $1 AND name = '水费'
+			 ORDER BY is_system DESC, id LIMIT 1`, root.ID,
+		).Scan(&waterID)
+		if waterErr != nil && waterErr != sql.ErrNoRows {
+			tx.Rollback()
+			return fmt.Errorf("find 住房·水费 for user %d: %w", root.UserID, waterErr)
+		}
+
+		if waterErr == sql.ErrNoRows && len(oldIDs) > 0 {
+			waterID = oldIDs[0]
+			oldIDs = oldIDs[1:]
+			if _, err := tx.Exec(
+				`UPDATE categories SET name = '水费', icon = '💧', color_hex = '#06B6D4', sort_order = 101 WHERE id = $1`,
+				waterID,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("rename 住房·水电: %w", err)
+			}
+		} else if waterErr == sql.ErrNoRows {
+			if err := tx.QueryRow(
+				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+				 VALUES ($1, '水费', 'expense', '💧', '#06B6D4', 101, TRUE, $2, 'normal') RETURNING id`,
+				root.UserID, root.ID,
+			).Scan(&waterID); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("insert 住房·水费: %w", err)
+			}
+		}
+
+		mergeOld := func(oldID int64) error {
+			if _, err := tx.Exec(`UPDATE transactions SET category_id = $1 WHERE category_id = $2`, waterID, oldID); err != nil {
+				return fmt.Errorf("merge 水电 transactions: %w", err)
+			}
+			if _, err := tx.Exec(`UPDATE recurring_transactions SET category_id = $1 WHERE category_id = $2`, waterID, oldID); err != nil {
+				return fmt.Errorf("merge 水电 recurring transactions: %w", err)
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO budgets (user_id, amount, month, year, category_id)
+				 SELECT user_id, amount, month, year, $1 FROM budgets WHERE category_id = $2
+				 ON CONFLICT (user_id, year, month, category_id)
+				 DO UPDATE SET amount = budgets.amount + EXCLUDED.amount`,
+				waterID, oldID,
+			); err != nil {
+				return fmt.Errorf("merge 水电 budgets: %w", err)
+			}
+			if _, err := tx.Exec(`DELETE FROM budgets WHERE category_id = $1`, oldID); err != nil {
+				return fmt.Errorf("delete old 水电 budgets: %w", err)
+			}
+			if _, err := tx.Exec(`UPDATE categories SET parent_id = $1 WHERE parent_id = $2`, waterID, oldID); err != nil {
+				return fmt.Errorf("merge 水电 children: %w", err)
+			}
+			if _, err := tx.Exec(`DELETE FROM categories WHERE id = $1`, oldID); err != nil {
+				return fmt.Errorf("delete old 水电 category: %w", err)
+			}
+			return nil
+		}
+		for _, oldID := range oldIDs {
+			if err := mergeOld(oldID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+
+		var electricityExists bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM categories WHERE parent_id = $1 AND name = '电费')`, root.ID,
+		).Scan(&electricityExists); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if !electricityExists {
+			if _, err := tx.Exec(
+				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id, scope)
+				 VALUES ($1, '电费', 'expense', '⚡', '#F59E0B', 102, TRUE, $2, 'normal')`,
+				root.UserID, root.ID,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("insert 住房·电费: %w", err)
+			}
+		}
+
+		if _, err := tx.Exec(
+			`UPDATE categories SET sort_order = CASE name
+				WHEN '租金' THEN 100 WHEN '水费' THEN 101 WHEN '电费' THEN 102
+				WHEN '物业' THEN 103 WHEN '酒店' THEN 104 WHEN '其他' THEN 105
+			 END
+			 WHERE parent_id = $1 AND name IN ('租金', '水费', '电费', '物业', '酒店', '其他')`,
+			root.ID,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("reorder 住房 children: %w", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return err
 		}
 	}
 	return nil

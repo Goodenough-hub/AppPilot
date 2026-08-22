@@ -173,6 +173,16 @@ func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
 	assertChain(t, subs, "抖音", "外卖")
 }
 
+func TestExpenseTreeHousingSplitsWaterAndElectricity(t *testing.T) {
+	subs := childrenOf(t, "住房")
+	assertChain(t, subs, "租金", "水费", "电费", "物业", "酒店", "其他")
+	for _, sub := range subs {
+		if sub.Name == "水电" {
+			t.Fatal("住房子分类不应再包含「水电」")
+		}
+	}
+}
+
 // TestIncomeTreeHasRefundReimburseTransferIn 校验收入顶级分类含
 // 退款/报销/他人转入，且顺序为 工资→投资→兼职→退款→报销→他人转入→其他收入。
 func TestIncomeTreeHasRefundReimburseTransferIn(t *testing.T) {
