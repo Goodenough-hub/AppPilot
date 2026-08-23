@@ -481,9 +481,9 @@ func (r *Repository) DeleteDraft(userID, id int64) error {
 	return nil
 }
 
-// SetDraftStatus 更新发布状态（不触版本号）。
+// SetDraftStatus 更新发布状态（不触版本号和草稿修改时间）。
 func (r *Repository) SetDraftStatus(id int64, status string) error {
-	_, err := r.db.Exec(`UPDATE blog_drafts SET status = $1, updated_at = NOW() WHERE id = $2`, status, id)
+	_, err := r.db.Exec(`UPDATE blog_drafts SET status = $1 WHERE id = $2`, status, id)
 	return err
 }
 
@@ -494,7 +494,7 @@ func (r *Repository) SetDraftStatus(id int64, status string) error {
 //
 // 可选更新 visibility/project_id/tags（nil 字段保持原值）。返回最新草稿。
 func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) {
-	sets := []string{"updated_at = NOW()"}
+	sets := []string{}
 	args := []any{}
 	n := 1
 	add := func(col string, val any) {
@@ -577,7 +577,7 @@ func (r *Repository) PublishScheduledDrafts() ([]int64, error) {
 				`UPDATE blog_drafts
 				 SET status = $1, published_version = version,
 				     published_at = COALESCE(published_at, NOW()),
-				     scheduled_publish_at = NULL, updated_at = NOW()
+				     scheduled_publish_at = NULL
 				 WHERE id = $2 AND status = $3
 				 RETURNING `+draftRetCols,
 				StatusPublished, id, StatusDraft,
@@ -689,7 +689,7 @@ func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, er
 func (r *Repository) UnpublishDraft(id int64) (*Draft, error) {
 	d, err := r.scanDraftRet(func(dst ...any) error {
 		return r.db.QueryRow(
-			`UPDATE blog_drafts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING `+draftRetCols,
+			`UPDATE blog_drafts SET status = $1 WHERE id = $2 RETURNING `+draftRetCols,
 			StatusDraft, id,
 		).Scan(dst...)
 	})
@@ -720,7 +720,7 @@ func scanDraftSummary(sc func(...any) error) (*DraftSummary, error) {
 	return s, nil
 }
 
-// ListPublishedPublic 列出所有公开已发布文档，按更新时间倒序。可选 projectID 过滤。
+// ListPublishedPublic 列出所有公开已发布文档，按首次发布时间倒序。可选 projectID 过滤。
 func (r *Repository) ListPublishedPublic(projectID *int64) ([]DraftSummary, error) {
 	where := `d.visibility = $1 AND d.status = $2`
 	args := []any{VisibilityPublic, StatusPublished}
@@ -730,7 +730,7 @@ func (r *Repository) ListPublishedPublic(projectID *int64) ([]DraftSummary, erro
 	}
 	rows, err := r.db.Query(
 		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
-		 WHERE `+where+` ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
+		 WHERE `+where+` ORDER BY d.published_at DESC, d.id DESC`,
 		args...,
 	)
 	if err != nil {
@@ -754,7 +754,7 @@ func (r *Repository) ListAllPublished() ([]DraftSummary, error) {
 	rows, err := r.db.Query(
 		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
 		 WHERE d.status = $1
-		 ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
+		 ORDER BY d.published_at DESC, d.id DESC`,
 		StatusPublished,
 	)
 	if err != nil {
@@ -829,7 +829,7 @@ func (r *Repository) SearchPublic(q string, projectID *int64, limit, offset int)
 	args = append(args, limit, offset)
 	rows, err := r.db.Query(
 		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
-		 WHERE `+where+` ORDER BY COALESCE(d.updated_at, d.published_at) DESC
+		 WHERE `+where+` ORDER BY d.published_at DESC, d.id DESC
 		 LIMIT $`+fmt.Sprintf("%d", len(args)-1)+` OFFSET $`+fmt.Sprintf("%d", len(args)),
 		args...,
 	)
@@ -864,12 +864,12 @@ func (r *Repository) SearchPublic(q string, projectID *int64, limit, offset int)
 	return out, total, nil
 }
 
-// ListPublishedPrivate 列出本人私有已发布文档。
+// ListPublishedPrivate 列出本人私有已发布文档，按首次发布时间倒序。
 func (r *Repository) ListPublishedPrivate(userID int64) ([]DraftSummary, error) {
 	rows, err := r.db.Query(
 		`SELECT `+summaryCols+` FROM blog_drafts d LEFT JOIN blog_projects p ON p.id = d.project_id
 		 WHERE d.user_id = $1 AND d.visibility = $2 AND d.status = $3
-		 ORDER BY COALESCE(d.updated_at, d.published_at) DESC`,
+		 ORDER BY d.published_at DESC, d.id DESC`,
 		userID, VisibilityPrivate, StatusPublished,
 	)
 	if err != nil {

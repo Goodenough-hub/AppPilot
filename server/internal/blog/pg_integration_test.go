@@ -163,13 +163,17 @@ func publishForTest(t *testing.T, repo *Repository, id int64) {
 }
 
 // TestPublishSyncFlip 发布/撤回为 DB 内同步翻转：published_version/published_at 写入，
-// 撤回回 draft，再发布保留 visibility。
+// 撤回回 draft，再发布保留 visibility，且发布状态变化不影响草稿修改时间。
 func TestPublishSyncFlip(t *testing.T) {
 	pg := testDSN(t)
 	defer pg.Close()
 	truncateBlog(t, pg)
 	uid, repo := newBlogUser(t, pg)
 	d, _ := repo.CreateDraft(uid, Draft{Slug: "flip", Title: "T", Markdown: "m", Visibility: VisibilityPublic})
+	modifiedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	if _, err := pg.Exec(`UPDATE blog_drafts SET updated_at = $1 WHERE id = $2`, modifiedAt, d.ID); err != nil {
+		t.Fatalf("set modified time: %v", err)
+	}
 
 	pub, err := repo.PublishDraft(d.ID, PublishRequest{Visibility: ptrString(VisibilityPublic)})
 	if err != nil {
@@ -184,6 +188,9 @@ func TestPublishSyncFlip(t *testing.T) {
 	if pub.PublishedAt == nil {
 		t.Fatal("published_at should be set on first publish")
 	}
+	if !pub.UpdatedAt.UTC().Equal(modifiedAt) {
+		t.Fatalf("updated_at = %v, want %v after publish", pub.UpdatedAt, modifiedAt)
+	}
 	firstAt := *pub.PublishedAt
 
 	// 撤回 → draft，visibility 保留。
@@ -197,6 +204,9 @@ func TestPublishSyncFlip(t *testing.T) {
 	if unpub.Visibility != VisibilityPublic {
 		t.Fatalf("visibility = %s, want public (preserved)", unpub.Visibility)
 	}
+	if !unpub.UpdatedAt.UTC().Equal(modifiedAt) {
+		t.Fatalf("updated_at = %v, want %v after unpublish", unpub.UpdatedAt, modifiedAt)
+	}
 
 	// 再发布：published_at 保持首次值不变。
 	pub2, _ := repo.PublishDraft(d.ID, PublishRequest{Visibility: ptrString(VisibilityPrivate)})
@@ -205,6 +215,50 @@ func TestPublishSyncFlip(t *testing.T) {
 	}
 	if pub2.PublishedAt == nil || !pub2.PublishedAt.UTC().Equal(firstAt.UTC()) {
 		t.Fatalf("published_at = %v, want %v (preserved)", pub2.PublishedAt, firstAt)
+	}
+	if !pub2.UpdatedAt.UTC().Equal(modifiedAt) {
+		t.Fatalf("updated_at = %v, want %v after re-publish", pub2.UpdatedAt, modifiedAt)
+	}
+}
+
+// TestPublishedListsOrderByFirstPublishTime 更新旧文章后，公开与搜索列表仍按首次发布时间排序。
+func TestPublishedListsOrderByFirstPublishTime(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	older, _ := repo.CreateDraft(uid, Draft{Slug: "older", Title: "Older", Markdown: "searchable", Visibility: VisibilityPublic})
+	newer, _ := repo.CreateDraft(uid, Draft{Slug: "newer", Title: "Newer", Markdown: "searchable", Visibility: VisibilityPublic})
+	publishForTest(t, repo, older.ID)
+	publishForTest(t, repo, newer.ID)
+
+	oldPublishedAt := time.Now().Add(-48 * time.Hour)
+	newPublishedAt := time.Now().Add(-24 * time.Hour)
+	if _, err := pg.Exec(
+		`UPDATE blog_drafts
+		 SET published_at = CASE id WHEN $1 THEN $2::timestamptz WHEN $3 THEN $4::timestamptz END,
+		     updated_at = CASE id WHEN $1 THEN NOW() WHEN $3 THEN $4::timestamptz END
+		 WHERE id IN ($1, $3)`,
+		older.ID, oldPublishedAt, newer.ID, newPublishedAt,
+	); err != nil {
+		t.Fatalf("set article times: %v", err)
+	}
+
+	posts, err := repo.ListPublishedPublic(nil)
+	if err != nil {
+		t.Fatalf("list public posts: %v", err)
+	}
+	if len(posts) != 2 || posts[0].Slug != "newer" || posts[1].Slug != "older" {
+		t.Fatalf("public order = %+v, want newer then older", posts)
+	}
+
+	results, _, err := repo.SearchPublic("searchable", nil, 10, 0)
+	if err != nil {
+		t.Fatalf("search public posts: %v", err)
+	}
+	if len(results) != 2 || results[0].Slug != "newer" || results[1].Slug != "older" {
+		t.Fatalf("search order = %+v, want newer then older", results)
 	}
 }
 
