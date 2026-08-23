@@ -221,6 +221,107 @@ func TestPublishSyncFlip(t *testing.T) {
 	}
 }
 
+// TestPublishWithHistoricalTime 首次立即发布可指定历史时间，重新发布不传时保持原值，显式传入时覆盖。
+func TestPublishWithHistoricalTime(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+	d, _ := repo.CreateDraft(uid, Draft{Slug: "historical", Title: "T"})
+	firstAt := time.Now().Add(-72 * time.Hour).UTC().Truncate(time.Microsecond)
+
+	pub, err := repo.PublishDraft(d.ID, PublishRequest{PublishedAt: &firstAt, SyncCreatedAt: true})
+	if err != nil || pub.PublishedAt == nil || !pub.PublishedAt.UTC().Equal(firstAt) {
+		t.Fatalf("first publish published_at = %v err=%v, want %v", pub.PublishedAt, err, firstAt)
+	}
+	if !pub.CreatedAt.UTC().Equal(firstAt) {
+		t.Fatalf("first publish created_at = %v, want %v", pub.CreatedAt, firstAt)
+	}
+	if _, err := repo.UnpublishDraft(d.ID); err != nil {
+		t.Fatalf("unpublish: %v", err)
+	}
+	preserved, err := repo.PublishDraft(d.ID, PublishRequest{})
+	if err != nil || preserved.PublishedAt == nil || !preserved.PublishedAt.UTC().Equal(firstAt) {
+		t.Fatalf("re-publish published_at = %v err=%v, want preserved %v", preserved.PublishedAt, err, firstAt)
+	}
+
+	overriddenAt := firstAt.Add(24 * time.Hour)
+	overridden, err := repo.PublishDraft(d.ID, PublishRequest{PublishedAt: &overriddenAt})
+	if err != nil || overridden.PublishedAt == nil || !overridden.PublishedAt.UTC().Equal(overriddenAt) {
+		t.Fatalf("override published_at = %v err=%v, want %v", overridden.PublishedAt, err, overriddenAt)
+	}
+}
+
+// TestUpdatePublishedAt 已发布与已撤回文章均可修改；未发布拒绝、非属主不可见，且其他字段不变。
+func TestUpdatePublishedAt(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+	d, _ := repo.CreateDraft(uid, Draft{Slug: "change-time", Title: "T", Visibility: VisibilityPublic})
+	pub, err := repo.PublishDraft(d.ID, PublishRequest{})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	scheduledAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Microsecond)
+	modifiedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	if _, err := pg.Exec(
+		`UPDATE blog_drafts SET scheduled_publish_at = $1, updated_at = $2 WHERE id = $3`,
+		scheduledAt, modifiedAt, d.ID,
+	); err != nil {
+		t.Fatalf("set unchanged fields: %v", err)
+	}
+
+	newAt := time.Now().Add(-48 * time.Hour).UTC().Truncate(time.Microsecond)
+	updated, oldAt, err := repo.UpdatePublishedAt(uid, d.ID, newAt, true)
+	if err != nil {
+		t.Fatalf("update published_at: %v", err)
+	}
+	if pub.PublishedAt == nil || !oldAt.UTC().Equal(pub.PublishedAt.UTC()) {
+		t.Fatalf("old published_at = %v, want %v", oldAt, pub.PublishedAt)
+	}
+	if updated.PublishedAt == nil || !updated.PublishedAt.UTC().Equal(newAt) {
+		t.Fatalf("published_at = %v, want %v", updated.PublishedAt, newAt)
+	}
+	if !updated.CreatedAt.UTC().Equal(newAt) {
+		t.Fatalf("created_at = %v, want %v", updated.CreatedAt, newAt)
+	}
+	if updated.Status != pub.Status || updated.Version != pub.Version ||
+		updated.PublishedVersion == nil || pub.PublishedVersion == nil || *updated.PublishedVersion != *pub.PublishedVersion {
+		t.Fatalf("publish state changed: before=%+v after=%+v", pub, updated)
+	}
+	if updated.ScheduledPublishAt == nil || !updated.ScheduledPublishAt.UTC().Equal(scheduledAt) {
+		t.Fatalf("scheduled_publish_at = %v, want %v", updated.ScheduledPublishAt, scheduledAt)
+	}
+	if !updated.UpdatedAt.UTC().Equal(modifiedAt) {
+		t.Fatalf("updated_at = %v, want %v", updated.UpdatedAt, modifiedAt)
+	}
+
+	if _, err := repo.UnpublishDraft(d.ID); err != nil {
+		t.Fatalf("unpublish: %v", err)
+	}
+	withdrawnAt := newAt.Add(-24 * time.Hour)
+	withdrawn, _, err := repo.UpdatePublishedAt(uid, d.ID, withdrawnAt, false)
+	if err != nil || withdrawn.Status != StatusDraft || withdrawn.PublishedAt == nil || !withdrawn.PublishedAt.UTC().Equal(withdrawnAt) {
+		t.Fatalf("update withdrawn draft: draft=%+v err=%v", withdrawn, err)
+	}
+	if !withdrawn.CreatedAt.UTC().Equal(newAt) {
+		t.Fatalf("syncCreatedAt=false changed created_at: %v, want %v", withdrawn.CreatedAt, newAt)
+	}
+
+	never, _ := repo.CreateDraft(uid, Draft{Slug: "never-published", Title: "T"})
+	if _, _, err := repo.UpdatePublishedAt(uid, never.ID, newAt, false); !errors.Is(err, ErrDraftNeverPublished) {
+		t.Fatalf("never-published err=%v, want ErrDraftNeverPublished", err)
+	}
+	otherUser, err := repo.Create("published-at-other", "secret123")
+	if err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	if _, _, err := repo.UpdatePublishedAt(otherUser.ID, d.ID, newAt, false); !errors.Is(err, ErrDraftNotFound) {
+		t.Fatalf("other owner err=%v, want ErrDraftNotFound", err)
+	}
+}
+
 // TestPublishedListsOrderByFirstPublishTime 更新旧文章后，公开与搜索列表仍按首次发布时间排序。
 func TestPublishedListsOrderByFirstPublishTime(t *testing.T) {
 	pg := testDSN(t)

@@ -51,8 +51,8 @@ type Draft struct {
 	PublishedCommitSha    *string    `json:"publishedCommitSha,omitempty"`
 	PublishedVersion      *int64     `json:"publishedVersion,omitempty"`
 	HasUnpublishedChanges bool       `json:"hasUnpublishedChanges"`
-	ProjectID              *int64     `json:"projectId,omitempty"`
-	ProjectName            *string    `json:"projectName,omitempty"`
+	ProjectID             *int64     `json:"projectId,omitempty"`
+	ProjectName           *string    `json:"projectName,omitempty"`
 	PublishedAt           *time.Time `json:"publishedAt,omitempty"`
 	ScheduledPublishAt    *time.Time `json:"scheduledPublishAt,omitempty"`
 	CreatedAt             time.Time  `json:"createdAt"`
@@ -72,14 +72,14 @@ type DraftVersion struct {
 }
 
 type Asset struct {
-	ID            int64     `json:"id"`
-	UserID        int64     `json:"userId"`
-	DraftID       *int64    `json:"draftId,omitempty"`
-	SHA256        string    `json:"sha256"`
-	Filename      string    `json:"filename"`
-	MIME          string    `json:"mime"`
-	Size          int64     `json:"size"`
-	StagingPath string `json:"-"` // 服务端路径，不外泄
+	ID          int64     `json:"id"`
+	UserID      int64     `json:"userId"`
+	DraftID     *int64    `json:"draftId,omitempty"`
+	SHA256      string    `json:"sha256"`
+	Filename    string    `json:"filename"`
+	MIME        string    `json:"mime"`
+	Size        int64     `json:"size"`
+	StagingPath string    `json:"-"` // 服务端路径，不外泄
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -141,13 +141,20 @@ type UpdateDraftRequest struct {
 	BaseVersion int64    `json:"baseVersion" binding:"required"`
 }
 
-// PublishRequest 可携带发布时的可见性、定时发布时间、项目归属、标签。
+// PublishRequest 可携带发布时的可见性、发布时间、定时发布时间、项目归属、标签。
 // 缺省字段保持原值；ScheduledPublishAt 非 nil 表示定时发布（status 保持 draft）。
 type PublishRequest struct {
 	Visibility         *string    `json:"visibility"`
+	PublishedAt        *time.Time `json:"publishedAt"`
+	SyncCreatedAt      bool       `json:"syncCreatedAt"`
 	ScheduledPublishAt *time.Time `json:"scheduledPublishAt"`
 	ProjectID          *int64     `json:"projectId"`
 	Tags               []string   `json:"tags"`
+}
+
+type UpdatePublishedAtRequest struct {
+	PublishedAt   *time.Time `json:"publishedAt" binding:"required"`
+	SyncCreatedAt bool       `json:"syncCreatedAt"`
 }
 
 // ---- Project 请求体 ----
@@ -183,20 +190,20 @@ type SetDraftProjectRequest struct {
 
 // DraftSummary 是列表场景的精简视图：不含 markdown 正文。
 type DraftSummary struct {
-	ID                int64      `json:"id"`
-	Slug              string     `json:"slug"`
-	Title             string     `json:"title"`
-	Description       string     `json:"description"`
-	Tags              []string   `json:"tags"`
-	Cover             *string    `json:"cover,omitempty"`
-	Status            string     `json:"status"`
-	Visibility        string     `json:"visibility"`
-	Version           int64      `json:"version"`
-	ProjectID         *int64     `json:"projectId,omitempty"`
-	ProjectName       *string    `json:"projectName,omitempty"`
-	PublishedAt       *time.Time `json:"publishedAt,omitempty"`
+	ID                 int64      `json:"id"`
+	Slug               string     `json:"slug"`
+	Title              string     `json:"title"`
+	Description        string     `json:"description"`
+	Tags               []string   `json:"tags"`
+	Cover              *string    `json:"cover,omitempty"`
+	Status             string     `json:"status"`
+	Visibility         string     `json:"visibility"`
+	Version            int64      `json:"version"`
+	ProjectID          *int64     `json:"projectId,omitempty"`
+	ProjectName        *string    `json:"projectName,omitempty"`
+	PublishedAt        *time.Time `json:"publishedAt,omitempty"`
 	ScheduledPublishAt *time.Time `json:"scheduledPublishAt,omitempty"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
 // ---- Admin 管理 blog 账号的请求体 ----

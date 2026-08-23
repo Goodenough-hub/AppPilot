@@ -98,6 +98,7 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	studio.POST("/:id/versions/:version/restore", h.restoreVersion)
 	studio.POST("/:id/publish", h.publish)
 	studio.POST("/:id/unpublish", h.unpublish)
+	studio.PATCH("/:id/published-at", h.updatePublishedAt)
 	studio.PUT("/:id/project", h.setDraftProject)
 
 	// 资源上传同样仅 admin
@@ -686,7 +687,8 @@ func (h *Handler) getAsset(c *gin.Context) {
 // ==================== Publish / Unpublish ====================
 
 // publish 把草稿置为已发布或定时发布。
-// 请求体可选字段：visibility（同时调整可见性）、scheduledPublishAt（定时）、projectId、tags。
+// 请求体可选字段：visibility（同时调整可见性）、publishedAt（历史时间）、
+// scheduledPublishAt（定时）、projectId、tags。
 // 缺省保持原值；scheduledPublishAt 非 nil 表示定时发布（status 保持 draft）。
 func (h *Handler) publish(c *gin.Context) {
 	id, ok := parseIDParam(c, "id")
@@ -703,13 +705,13 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 	var req PublishRequest
-	_ = c.ShouldBindJSON(&req)
-	// 校验定时时间：非 nil 时必须 > now（1 分钟容差防时钟漂移）
-	if req.ScheduledPublishAt != nil {
-		if req.ScheduledPublishAt.Before(time.Now().Add(-time.Minute)) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "scheduledPublishAt 不能是过去时间"})
-			return
-		}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validatePublishTimes(req, time.Now()); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 	// 缺省 visibility 保持原值
 	if req.Visibility == nil {
@@ -718,13 +720,16 @@ func (h *Handler) publish(c *gin.Context) {
 	}
 	// 已发布且无可见性变更、无待发布修改、无定时 → no-op
 	if d.Status == StatusPublished && d.PublishedVersion != nil && d.Version == *d.PublishedVersion &&
-		*req.Visibility == d.Visibility && req.ScheduledPublishAt == nil &&
+		*req.Visibility == d.Visibility && req.PublishedAt == nil && req.ScheduledPublishAt == nil &&
 		req.ProjectID == nil && req.Tags == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"id":         encodeID(d.ID),
-			"status":     StatusPublished,
-			"visibility": d.Visibility,
-			"noop":       true,
+			"id":               encodeID(d.ID),
+			"status":           StatusPublished,
+			"visibility":       d.Visibility,
+			"publishedVersion": d.PublishedVersion,
+			"publishedAt":      d.PublishedAt,
+			"updatedAt":        d.UpdatedAt,
+			"noop":             true,
 		})
 		return
 	}
@@ -745,11 +750,14 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 	auditAction := "publish"
+	auditDetail := fmt.Sprintf("%s@v%d", updated.Slug, updated.Version)
 	if req.ScheduledPublishAt != nil {
 		auditAction = "schedule_publish"
+	} else if req.PublishedAt != nil {
+		auditDetail = fmt.Sprintf("%s@v%d, publishedAt=%s, syncCreatedAt=%t",
+			updated.Slug, updated.Version, req.PublishedAt.Format(time.RFC3339), req.SyncCreatedAt)
 	}
-	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), auditAction,
-		fmt.Sprintf("%s@v%d", updated.Slug, updated.Version))
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), auditAction, auditDetail)
 	if req.ScheduledPublishAt != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"id":                 encodeID(updated.ID),
@@ -769,6 +777,59 @@ func (h *Handler) publish(c *gin.Context) {
 		"publishedAt":      updated.PublishedAt,
 		"updatedAt":        updated.UpdatedAt,
 	})
+}
+
+func validatePublishTimes(req PublishRequest, now time.Time) error {
+	if req.PublishedAt != nil && req.ScheduledPublishAt != nil {
+		return errors.New("publishedAt 与 scheduledPublishAt 不能同时使用")
+	}
+	if req.SyncCreatedAt && req.PublishedAt == nil {
+		return errors.New("syncCreatedAt 仅能与 publishedAt 同时使用")
+	}
+	if req.PublishedAt != nil && req.PublishedAt.After(now) {
+		return errors.New("publishedAt 不能是未来时间")
+	}
+	// 定时时间保留 1 分钟容差，避免客户端与服务端时钟轻微漂移。
+	if req.ScheduledPublishAt != nil && req.ScheduledPublishAt.Before(now.Add(-time.Minute)) {
+		return errors.New("scheduledPublishAt 不能是过去时间")
+	}
+	return nil
+}
+
+func (h *Handler) updatePublishedAt(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req UpdatePublishedAtRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.PublishedAt == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "publishedAt 必须是非空 RFC3339 时间"})
+		return
+	}
+	if req.PublishedAt.After(time.Now()) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "publishedAt 不能是未来时间"})
+		return
+	}
+
+	updated, oldPublishedAt, err := h.repo.UpdatePublishedAt(
+		blogUserID(c), id, *req.PublishedAt, req.SyncCreatedAt,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDraftNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "draft not found"})
+		case errors.Is(err, ErrDraftNeverPublished):
+			c.JSON(http.StatusConflict, gin.H{"error": "文章从未发布，不能修改发布时间"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	_ = h.repo.InsertAudit(int64Ptr(blogUserID(c)), "update_published_at", fmt.Sprintf(
+		"%s: %s -> %s, syncCreatedAt=%t", updated.Slug, oldPublishedAt.Format(time.RFC3339),
+		updated.PublishedAt.Format(time.RFC3339), req.SyncCreatedAt,
+	))
+	c.JSON(http.StatusOK, updated)
 }
 
 // listTags 返回当前用户所有草稿的去重标签列表。

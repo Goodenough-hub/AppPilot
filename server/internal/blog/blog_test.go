@@ -58,6 +58,26 @@ func TestParseVisibility(t *testing.T) {
 	}
 }
 
+// TestValidatePublishTimes 校验历史发布时间不能在未来，且不能与定时发布同时提交。
+func TestValidatePublishTimes(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-24 * time.Hour)
+	future := now.Add(time.Hour)
+
+	if err := validatePublishTimes(PublishRequest{PublishedAt: &past}, now); err != nil {
+		t.Fatalf("历史发布时间应允许: %v", err)
+	}
+	if err := validatePublishTimes(PublishRequest{PublishedAt: &future}, now); err == nil {
+		t.Fatal("未来 publishedAt 应拒绝")
+	}
+	if err := validatePublishTimes(PublishRequest{PublishedAt: &past, ScheduledPublishAt: &future}, now); err == nil {
+		t.Fatal("publishedAt 与 scheduledPublishAt 同时提交应拒绝")
+	}
+	if err := validatePublishTimes(PublishRequest{SyncCreatedAt: true}, now); err == nil {
+		t.Fatal("syncCreatedAt 未同时提交 publishedAt 应拒绝")
+	}
+}
+
 // ==================== slug 校验 ====================
 
 func TestValidSlug(t *testing.T) {

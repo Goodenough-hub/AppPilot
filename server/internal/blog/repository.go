@@ -490,7 +490,7 @@ func (r *Repository) SetDraftStatus(id int64, status string) error {
 // PublishDraft 同步发布或定时发布。
 //   - req.ScheduledPublishAt != nil：定时发布，只写 scheduled_publish_at，status 保持 draft
 //   - req.ScheduledPublishAt == nil：立即发布，status=published、published_version=version、
-//     published_at=COALESCE(已有, NOW())、scheduled_publish_at=NULL
+//     published_at 使用显式值，否则保留已有值或 NOW()、scheduled_publish_at=NULL
 //
 // 可选更新 visibility/project_id/tags（nil 字段保持原值）。返回最新草稿。
 func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) {
@@ -518,10 +518,16 @@ func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) 
 	if req.ScheduledPublishAt != nil {
 		add("scheduled_publish_at", *req.ScheduledPublishAt)
 	} else {
-		sets = append(sets, "status = '"+StatusPublished+"'",
-			"published_version = version",
-			"published_at = COALESCE(published_at, NOW())",
-			"scheduled_publish_at = NULL")
+		sets = append(sets, "status = '"+StatusPublished+"'", "published_version = version")
+		if req.PublishedAt != nil {
+			add("published_at", *req.PublishedAt)
+			if req.SyncCreatedAt {
+				add("created_at", *req.PublishedAt)
+			}
+		} else {
+			sets = append(sets, "published_at = COALESCE(published_at, NOW())")
+		}
+		sets = append(sets, "scheduled_publish_at = NULL")
 	}
 	args = append(args, id)
 
@@ -541,6 +547,47 @@ func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) 
 		return nil, err
 	}
 	return d, nil
+}
+
+// UpdatePublishedAt 修改本人已发布过文章的发布时间，可选同步草稿创建时间。
+func (r *Repository) UpdatePublishedAt(userID, id int64, publishedAt time.Time, syncCreatedAt bool) (*Draft, time.Time, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var oldPublishedAt *time.Time
+	if err := tx.QueryRow(
+		`SELECT published_at FROM blog_drafts WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+		id, userID,
+	).Scan(&oldPublishedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, time.Time{}, ErrDraftNotFound
+		}
+		return nil, time.Time{}, err
+	}
+	if oldPublishedAt == nil {
+		return nil, time.Time{}, ErrDraftNeverPublished
+	}
+
+	setClause := "published_at = $1"
+	if syncCreatedAt {
+		setClause += ", created_at = $1"
+	}
+	d, err := r.scanDraftRet(func(dst ...any) error {
+		return tx.QueryRow(
+			`UPDATE blog_drafts SET `+setClause+` WHERE id = $2 AND user_id = $3 RETURNING `+draftRetCols,
+			publishedAt, id, userID,
+		).Scan(dst...)
+	})
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, time.Time{}, err
+	}
+	return d, *oldPublishedAt, nil
 }
 
 // PublishScheduledDrafts 提升所有到点的定时草稿为已发布。
