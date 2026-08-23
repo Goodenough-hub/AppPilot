@@ -352,7 +352,7 @@ type analyticsPVSource struct {
 
 func (s *analyticsPVSource) Key() string         { return "analytics:pv" }
 func (s *analyticsPVSource) Description() string {
-	return "页面访问量（PV/UV 日聚合）"
+	return "页面浏览次数与独立会话数（日聚合）"
 }
 
 func (s *analyticsPVSource) Query(ctx context.Context, params map[string]any) ([]ChartData, error) {
@@ -361,7 +361,7 @@ func (s *analyticsPVSource) Query(ctx context.Context, params map[string]any) ([
 	const q = `
 		SELECT to_char(created_at, 'YYYY-MM-DD') AS date,
 		       COUNT(*) AS pv,
-		       COUNT(DISTINCT COALESCE(session_id, ip)) AS uv
+		       COUNT(DISTINCT COALESCE(NULLIF(session_id, ''), ip)) AS uv
 		FROM analytics_events
 		WHERE event_type = 'pageview'
 		  AND created_at >= CURRENT_DATE - $1::int

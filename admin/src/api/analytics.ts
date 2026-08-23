@@ -21,6 +21,11 @@ export interface TopPageRow {
   uv: number
 }
 
+export interface AnalyticsSummary {
+  pageViews: number
+  uniqueSessions: number
+}
+
 export interface PVAggregateParams {
   app: string
   start?: string  // RFC3339
@@ -43,9 +48,17 @@ export function track(req: TrackRequest): void {
   })
 }
 
-/** 获取 PV/UV 日聚合数据 */
+/** 获取页面浏览次数与独立会话数的日聚合数据 */
 export async function getPV(params: PVAggregateParams): Promise<PVDailyRow[]> {
   const { data } = await apiClient.get<PVDailyRow[]>('/admin/analytics/pv', {
+    params: buildParams(params),
+  })
+  return data
+}
+
+/** 获取所选时间范围的页面访问汇总 */
+export async function getAnalyticsSummary(params: PVAggregateParams): Promise<AnalyticsSummary> {
+  const { data } = await apiClient.get<AnalyticsSummary>('/admin/analytics/summary', {
     params: buildParams(params),
   })
   return data
@@ -59,12 +72,12 @@ export async function getTopPages(params: PVAggregateParams): Promise<TopPageRow
   return data
 }
 
-/** 获取实时在线用户数（近5分钟） */
-export async function getRealtime(app: string): Promise<number> {
-  const { data } = await apiClient.get<{ online: number }>('/admin/analytics/realtime', {
+/** 获取近 5 分钟活跃会话数 */
+export async function getActiveSessions(app: string): Promise<number> {
+  const { data } = await apiClient.get<{ activeSessions: number }>('/admin/analytics/realtime', {
     params: { app },
   })
-  return data.online
+  return data.activeSessions
 }
 
 /** 生成会话 ID（浏览器 session 级别，同标签页共享） */

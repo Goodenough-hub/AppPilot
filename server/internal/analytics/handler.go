@@ -9,10 +9,18 @@ import (
 )
 
 type Handler struct {
-	repo *Repository
+	repo repository
 }
 
-func NewHandler(repo *Repository) *Handler {
+type repository interface {
+	InsertEvent(app, eventType, path, title, referrer, userAgent, ip, sessionID string, userID *int64) error
+	PVAggregate(app string, start, end time.Time) ([]PVDailyRow, error)
+	Summary(app string, start, end time.Time) (Summary, error)
+	TopPages(app string, start, end time.Time, limit int) ([]TopPageRow, error)
+	ActiveSessions(app string, window time.Duration) (int, error)
+}
+
+func NewHandler(repo repository) *Handler {
 	return &Handler{repo: repo}
 }
 
@@ -35,6 +43,7 @@ func (h *Handler) RegisterAdmin(rg *gin.RouterGroup, middlewares ...gin.HandlerF
 	g := rg.Use(middlewares...)
 	{
 		g.GET("/analytics/pv", h.pvAggregate)
+		g.GET("/analytics/summary", h.summary)
 		g.GET("/analytics/top-pages", h.topPages)
 		g.GET("/analytics/realtime", h.realtime)
 	}
@@ -98,6 +107,25 @@ func (h *Handler) pvAggregate(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
+func (h *Handler) summary(c *gin.Context) {
+	app := c.Query("app")
+	if app == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "app required"})
+		return
+	}
+	start, end, err := parseDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.repo.Summary(app, start, end)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *Handler) topPages(c *gin.Context) {
 	app := c.Query("app")
 	if app == "" {
@@ -132,12 +160,12 @@ func (h *Handler) realtime(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "app required"})
 		return
 	}
-	count, err := h.repo.RealtimeUsers(app, 5*time.Minute)
+	count, err := h.repo.ActiveSessions(app, 5*time.Minute)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"online": count})
+	c.JSON(http.StatusOK, gin.H{"activeSessions": count})
 }
 
 // parseDateRange 解析 start/end 查询参数，默认近7天。
