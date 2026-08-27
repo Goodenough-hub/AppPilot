@@ -345,6 +345,7 @@ func (r *Repository) CreateDraft(userID int64, d Draft) (*Draft, error) {
 	}
 	// 新建草稿保存 v1 检查点。
 	_ = r.insertCheckpoint(out)
+	_ = r.EnsureTags(userID, out.Tags)
 	return out, nil
 }
 
@@ -421,6 +422,9 @@ func (r *Repository) UpdateDraft(userID, id, baseVersion int64, req UpdateDraftR
 	}
 	// 检查点策略：距上一个快照≥5min 才自动创建，避免每次保存都写快照。
 	_ = r.maybeCheckpoint(d)
+	if req.Tags != nil {
+		_ = r.EnsureTags(userID, d.Tags)
+	}
 	return d, d.Version, nil
 }
 
@@ -546,6 +550,9 @@ func (r *Repository) PublishDraft(id int64, req PublishRequest) (*Draft, error) 
 		}
 		return nil, err
 	}
+	if req.Tags != nil {
+		_ = r.EnsureTags(d.UserID, d.Tags)
+	}
 	return d, nil
 }
 
@@ -641,11 +648,54 @@ func (r *Repository) PublishScheduledDrafts() ([]int64, error) {
 	return published, nil
 }
 
-// ListTags 列出当前用户所有草稿中去重后的标签，按字母序排序。
+func (r *Repository) EnsureTags(userID int64, tags []string) error {
+	for _, raw := range tags {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, err := r.db.Exec(
+			`INSERT INTO blog_tags (user_id, name)
+			 VALUES ($1, $2)
+			 ON CONFLICT (user_id, name) DO NOTHING`,
+			userID, name,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CreateTag 在独立标签表中为当前用户新增标签。
+func (r *Repository) CreateTag(userID int64, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("tag name cannot be empty")
+	}
+	_, err := r.db.Exec(
+		`INSERT INTO blog_tags (user_id, name) VALUES ($1, $2)`,
+		userID, name,
+	)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return "", ErrConflict
+		}
+		return "", err
+	}
+	return name, nil
+}
+
+// ListTags 列出当前用户所有标签（包含零文章使用的独立标签与草稿标签），按名称升序排列。
 func (r *Repository) ListTags(userID int64) ([]string, error) {
 	rows, err := r.db.Query(
-		`SELECT DISTINCT unnest(tags) AS tag FROM blog_drafts
-		 WHERE user_id = $1 ORDER BY tag`,
+		`SELECT tag FROM (
+			SELECT name AS tag FROM blog_tags WHERE user_id = $1
+			UNION
+			SELECT DISTINCT unnest(tags) AS tag FROM blog_drafts WHERE user_id = $1
+		) t
+		WHERE trim(tag) <> ''
+		ORDER BY tag`,
 		userID,
 	)
 	if err != nil {
@@ -666,7 +716,7 @@ func (r *Repository) ListTags(userID int64) ([]string, error) {
 	return tags, rows.Err()
 }
 
-// RenameTag 全局重命名当前用户的标签，并同步历史版本，确保已发布快照立即生效。
+// RenameTag 全局重命名当前用户的标签，并同步独立标签表与历史版本，确保已发布快照立即生效。
 func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -677,6 +727,8 @@ func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, er
 	var oldExists bool
 	if err := tx.QueryRow(
 		`SELECT EXISTS(
+			SELECT 1 FROM blog_tags WHERE user_id = $1 AND name = $2
+			UNION ALL
 			SELECT 1 FROM blog_drafts WHERE user_id = $1 AND $2 = ANY(tags)
 		)`,
 		userID, oldName,
@@ -690,6 +742,8 @@ func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, er
 	var newExists bool
 	if err := tx.QueryRow(
 		`SELECT EXISTS(
+			SELECT 1 FROM blog_tags WHERE user_id = $1 AND name = $2
+			UNION ALL
 			SELECT 1 FROM blog_drafts WHERE user_id = $1 AND $2 = ANY(tags)
 			UNION ALL
 			SELECT 1 FROM blog_draft_versions v
@@ -702,6 +756,21 @@ func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, er
 	}
 	if newExists {
 		return 0, ErrConflict
+	}
+
+	if _, err := tx.Exec(
+		`INSERT INTO blog_tags (user_id, name)
+		 VALUES ($1, $2)
+		 ON CONFLICT (user_id, name) DO NOTHING`,
+		userID, newName,
+	); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM blog_tags WHERE user_id = $1 AND name = $2`,
+		userID, oldName,
+	); err != nil {
+		return 0, err
 	}
 
 	if _, err := tx.Exec(
@@ -718,6 +787,73 @@ func (r *Repository) RenameTag(userID int64, oldName, newName string) (int64, er
 		 SET tags = array_replace(tags, $1, $2), updated_at = NOW()
 		 WHERE user_id = $3 AND $1 = ANY(tags)`,
 		oldName, newName, userID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return updated, nil
+}
+
+// DeleteTag 彻底删除标签：从 blog_tags 目录表、当前草稿及历史版本中完全移除。
+func (r *Repository) DeleteTag(userID int64, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, fmt.Errorf("tag name cannot be empty")
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(
+			SELECT 1 FROM blog_tags WHERE user_id = $1 AND name = $2
+			UNION ALL
+			SELECT 1 FROM blog_drafts WHERE user_id = $1 AND $2 = ANY(tags)
+			UNION ALL
+			SELECT 1 FROM blog_draft_versions v
+			JOIN blog_drafts d ON d.id = v.draft_id
+			WHERE d.user_id = $1 AND $2 = ANY(v.tags)
+		)`,
+		userID, name,
+	).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, ErrTagNotFound
+	}
+
+	if _, err := tx.Exec(
+		`DELETE FROM blog_tags WHERE user_id = $1 AND name = $2`,
+		userID, name,
+	); err != nil {
+		return 0, err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE blog_draft_versions v
+		 SET tags = array_remove(v.tags, $1)
+		 FROM blog_drafts d
+		 WHERE v.draft_id = d.id AND d.user_id = $2 AND $1 = ANY(v.tags)`,
+		name, userID,
+	); err != nil {
+		return 0, err
+	}
+
+	res, err := tx.Exec(
+		`UPDATE blog_drafts
+		 SET tags = array_remove(tags, $1), updated_at = NOW()
+		 WHERE user_id = $2 AND $1 = ANY(tags)`,
+		name, userID,
 	)
 	if err != nil {
 		return 0, err
@@ -1013,6 +1149,7 @@ func (r *Repository) ImportDraft(userID int64, d Draft, publishedAt *time.Time, 
 	}
 	// 导入后保存一个检查点，便于事后回滚。
 	_ = r.insertCheckpoint(out)
+	_ = r.EnsureTags(userID, out.Tags)
 	return out, nil
 }
 
@@ -1123,6 +1260,7 @@ func (r *Repository) RestoreVersion(userID, draftID, version int64) (*Draft, err
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	_ = r.EnsureTags(userID, d.Tags)
 	return d, nil
 }
 

@@ -381,6 +381,16 @@ CREATE TABLE IF NOT EXISTS blog_projects (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_projects_user_name ON blog_projects(user_id, name);
 CREATE INDEX IF NOT EXISTS idx_blog_projects_user_order ON blog_projects(user_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS blog_tags (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES blog_users(id) ON DELETE RESTRICT,
+    name       VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_blog_tags_user_name ON blog_tags(user_id, name);
+CREATE INDEX IF NOT EXISTS idx_blog_tags_user_name ON blog_tags(user_id, name);
 `
 
 // MigrateBlog 创建 FluxBlog 独立表族。幂等，由 db.Migrate 调用。
@@ -414,6 +424,12 @@ func MigrateBlog(db *sql.DB) error {
 		// 定时发布：scheduled_publish_at 非 nil 表示未来发布时间，到点由 scheduler 提升为 published。
 		`ALTER TABLE blog_drafts ADD COLUMN IF NOT EXISTS scheduled_publish_at TIMESTAMPTZ`,
 		`CREATE INDEX IF NOT EXISTS idx_blog_drafts_scheduled ON blog_drafts(scheduled_publish_at) WHERE scheduled_publish_at IS NOT NULL`,
+		// 独立标签表回填：将存量草稿中的去重标签同步至 blog_tags。
+		`INSERT INTO blog_tags (user_id, name)
+		 SELECT DISTINCT d.user_id, trim(t.tag)
+		 FROM blog_drafts d, unnest(d.tags) AS t(tag)
+		 WHERE trim(t.tag) <> ''
+		 ON CONFLICT (user_id, name) DO NOTHING`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

@@ -170,6 +170,10 @@ type UpdateProjectRequest struct {
 	SortOrder *int    `json:"sortOrder"`
 }
 
+type CreateTagRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
 type RenameTagRequest struct {
 	OldName string `json:"oldName" binding:"required"`
 	NewName string `json:"newName" binding:"required"`

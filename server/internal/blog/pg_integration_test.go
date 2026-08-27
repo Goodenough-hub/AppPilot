@@ -25,6 +25,10 @@ func testDSN(t *testing.T) *sql.DB {
 	if err := pg.Ping(); err != nil {
 		t.Fatalf("ping pg: %v", err)
 	}
+	// 确保 schema 最新（含增量表/列），与 serve 启动行为一致。
+	if err := db.MigrateBlog(pg); err != nil {
+		t.Fatalf("migrate blog: %v", err)
+	}
 	return pg
 }
 
@@ -33,7 +37,7 @@ func truncateBlog(t *testing.T, pg *sql.DB) {
 	t.Helper()
 	for _, tbl := range []string{
 		"blog_audit_logs", "blog_draft_versions",
-		"blog_assets", "blog_drafts", "blog_projects", "blog_users",
+		"blog_assets", "blog_drafts", "blog_tags", "blog_projects", "blog_users",
 	} {
 		if _, err := pg.Exec("TRUNCATE TABLE " + tbl + " RESTART IDENTITY CASCADE"); err != nil {
 			t.Fatalf("truncate %s: %v", tbl, err)
@@ -562,6 +566,87 @@ func TestRenameTag(t *testing.T) {
 	otherCurrent, _ := repo.GetDraft(otherUser.ID, otherDraft.ID)
 	if len(otherCurrent.Tags) != 1 || otherCurrent.Tags[0] != "旧标签" {
 		t.Fatalf("other user tags = %v, want [旧标签]", otherCurrent.Tags)
+	}
+}
+
+// TestTagLifecycle 独立标签的新增、列表持久化、删除彻底清理草稿与已发布版本。
+func TestTagLifecycle(t *testing.T) {
+	pg := testDSN(t)
+	defer pg.Close()
+	truncateBlog(t, pg)
+	uid, repo := newBlogUser(t, pg)
+
+	// 创建独立标签（未关联任何文章），刷新后仍应存在。
+	if _, err := repo.CreateTag(uid, "独立标签"); err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	if _, err := repo.CreateTag(uid, "独立标签"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("create dup tag: err=%v want ErrConflict", err)
+	}
+	if _, err := repo.CreateTag(uid, "  "); err == nil {
+		t.Fatalf("create empty tag should fail")
+	}
+
+	tags, err := repo.ListTags(uid)
+	if err != nil {
+		t.Fatalf("list tags: %v", err)
+	}
+	if len(tags) != 1 || tags[0] != "独立标签" {
+		t.Fatalf("list tags = %v, want [独立标签]", tags)
+	}
+
+	// 草稿标签在保存时自动登记到 blog_tags。
+	d, err := repo.CreateDraft(uid, Draft{
+		Slug: "tag-life", Title: "T", Tags: []string{"文章标签"}, Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	publishForTest(t, repo, d.ID)
+
+	tags, err = repo.ListTags(uid)
+	if err != nil {
+		t.Fatalf("list tags after draft: %v", err)
+	}
+	// 期望同时含独立标签与文章标签
+	want := map[string]bool{"独立标签": true, "文章标签": true}
+	for _, tg := range tags {
+		delete(want, tg)
+	}
+	if len(want) > 0 {
+		t.Fatalf("list tags = %v, missing %v", tags, want)
+	}
+
+	// 删除标签：草稿与已发布快照应同步移除。
+	updated, err := repo.DeleteTag(uid, "文章标签")
+	if err != nil || updated != 1 {
+		t.Fatalf("delete tag: updated=%d err=%v", updated, err)
+	}
+	current, _ := repo.GetDraft(uid, d.ID)
+	if len(current.Tags) != 0 {
+		t.Fatalf("current tags after delete = %v, want []", current.Tags)
+	}
+	published, _ := repo.GetPublishedPublicBySlug(d.Slug)
+	if len(published.Tags) != 0 {
+		t.Fatalf("published tags after delete = %v, want []", published.Tags)
+	}
+
+	// 删除不存在的标签报 ErrTagNotFound。
+	if _, err := repo.DeleteTag(uid, "不存在"); !errors.Is(err, ErrTagNotFound) {
+		t.Fatalf("delete missing tag: err=%v want ErrTagNotFound", err)
+	}
+
+	// 用户隔离：另一用户的标签互不影响。
+	other, _ := repo.Create("other-tag-user", "secret123")
+	if _, err := repo.CreateTag(other.ID, "他人标签"); err != nil {
+		t.Fatalf("other user create tag: %v", err)
+	}
+	if _, err := repo.DeleteTag(uid, "他人标签"); !errors.Is(err, ErrTagNotFound) {
+		t.Fatalf("delete other user tag: err=%v want ErrTagNotFound", err)
+	}
+	otherTags, _ := repo.ListTags(other.ID)
+	if len(otherTags) != 1 || otherTags[0] != "他人标签" {
+		t.Fatalf("other user tags = %v, want [他人标签]", otherTags)
 	}
 }
 
