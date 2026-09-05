@@ -50,7 +50,7 @@ func (h *Handler) RegisterAdmin(rg *gin.RouterGroup, middlewares ...gin.HandlerF
 }
 
 // knownApps 是允许上报埋点的应用白名单，与 admin.listApps 的聚合逻辑一致。
-var knownApps = map[string]bool{"finflow": true, "fluxblog": true}
+var knownApps = map[string]bool{"finflow": true, "fluxblog": true, "typresume": true}
 
 func (h *Handler) track(c *gin.Context) {
 	var req TrackRequest
