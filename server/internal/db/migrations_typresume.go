@@ -23,11 +23,24 @@ CREATE INDEX IF NOT EXISTS idx_resumes_user_id ON resumes(user_id);
 CREATE INDEX IF NOT EXISTS idx_resumes_updated ON resumes(user_id, updated_at DESC);
 `
 
-// resumeVisualColumns 添加可视化编辑器所需的 mode + content 字段（幂等）。
-// 存量简历默认 mode='typst' 保持原行为，content='{}'::jsonb 无害。
+// resumeVisualColumns 添加可视化编辑器及独立资源持久化所需字段（幂等）。
+// 存量 form 记录里的头像会迁移到 assets；已丢失 content 的源码记录无法恢复原图。
 const resumeVisualColumns = `
 ALTER TABLE resumes ADD COLUMN IF NOT EXISTS mode VARCHAR(16) NOT NULL DEFAULT 'typst';
 ALTER TABLE resumes ADD COLUMN IF NOT EXISTS content JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE resumes ADD COLUMN IF NOT EXISTS assets JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+UPDATE resumes
+SET assets = jsonb_build_object(
+    CASE
+        WHEN content #>> '{basics,avatarBase64}' LIKE 'data:image/png;base64,%' THEN 'avatar.png'
+        WHEN content #>> '{basics,avatarBase64}' LIKE 'data:image/webp;base64,%' THEN 'avatar.webp'
+        ELSE 'avatar.jpg'
+    END,
+    content #>> '{basics,avatarBase64}'
+)
+WHERE assets = '{}'::jsonb
+  AND content #>> '{basics,avatarBase64}' ~ '^data:image/(jpeg|jpg|png|webp);base64,.+';
 `
 
 // MigrateTypResume creates the resumes table for TypResume cloud sync,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var ErrNotFound = errors.New("resume not found")
@@ -18,7 +19,7 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 // SELECT / RETURNING 列顺序（scanOne 依赖同顺序）
-const resumeCols = `client_id, name, mode, content, active_file, files, created_at, updated_at`
+const resumeCols = `client_id, name, mode, content, active_file, files, assets, created_at, updated_at`
 
 // ListByUser 返回该用户的所有简历，按更新时间倒序。
 func (r *Repository) ListByUser(userID int64) ([]Resume, error) {
@@ -47,24 +48,33 @@ func (r *Repository) UpsertByClientID(userID int64, in Resume) (*Resume, error) 
 	if in.ClientID == "" {
 		return nil, errors.New("client_id required")
 	}
+	if in.Assets == nil {
+		in.Assets = assetsFromContent(in.Content)
+	}
+	hasAssets := in.Assets != nil
 	normalize(&in)
 	filesJSON, err := json.Marshal(in.Files)
 	if err != nil {
 		return nil, fmt.Errorf("encode files: %w", err)
 	}
+	assetsJSON, err := json.Marshal(in.Assets)
+	if err != nil {
+		return nil, fmt.Errorf("encode assets: %w", err)
+	}
 	contentJSON := normalizeJSON(in.Content)
 	row := r.db.QueryRow(
-		`INSERT INTO resumes (user_id, client_id, name, mode, content, active_file, files, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		`INSERT INTO resumes (user_id, client_id, name, mode, content, active_file, files, assets, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 		 ON CONFLICT (user_id, client_id) DO UPDATE
 		   SET name = EXCLUDED.name,
 		       mode = EXCLUDED.mode,
 		       content = EXCLUDED.content,
 		       active_file = EXCLUDED.active_file,
 		       files = EXCLUDED.files,
+		       assets = CASE WHEN $9 THEN EXCLUDED.assets ELSE resumes.assets END,
 		       updated_at = NOW()
 		 RETURNING `+resumeCols,
-		userID, in.ClientID, in.Name, in.Mode, contentJSON, in.ActiveFile, filesJSON,
+		userID, in.ClientID, in.Name, in.Mode, contentJSON, in.ActiveFile, filesJSON, assetsJSON, hasAssets,
 	)
 	return scanOne(row.Scan)
 }
@@ -97,14 +107,15 @@ func (r *Repository) BulkUpsert(userID int64, ins []Resume) ([]Resume, error) {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT INTO resumes (user_id, client_id, name, mode, content, active_file, files, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		`INSERT INTO resumes (user_id, client_id, name, mode, content, active_file, files, assets, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 		 ON CONFLICT (user_id, client_id) DO UPDATE
 		   SET name = EXCLUDED.name,
 		       mode = EXCLUDED.mode,
 		       content = EXCLUDED.content,
 		       active_file = EXCLUDED.active_file,
 		       files = EXCLUDED.files,
+		       assets = CASE WHEN $9 THEN EXCLUDED.assets ELSE resumes.assets END,
 		       updated_at = NOW()
 		 RETURNING ` + resumeCols,
 	)
@@ -118,13 +129,21 @@ func (r *Repository) BulkUpsert(userID int64, ins []Resume) ([]Resume, error) {
 		if in.ClientID == "" {
 			continue
 		}
+		if in.Assets == nil {
+			in.Assets = assetsFromContent(in.Content)
+		}
+		hasAssets := in.Assets != nil
 		normalize(&in)
 		filesJSON, err := json.Marshal(in.Files)
 		if err != nil {
 			return nil, fmt.Errorf("encode files for %s: %w", in.ClientID, err)
 		}
+		assetsJSON, err := json.Marshal(in.Assets)
+		if err != nil {
+			return nil, fmt.Errorf("encode assets for %s: %w", in.ClientID, err)
+		}
 		contentJSON := normalizeJSON(in.Content)
-		row := stmt.QueryRow(userID, in.ClientID, in.Name, in.Mode, contentJSON, in.ActiveFile, filesJSON)
+		row := stmt.QueryRow(userID, in.ClientID, in.Name, in.Mode, contentJSON, in.ActiveFile, filesJSON, assetsJSON, hasAssets)
 		got, err := scanOne(row.Scan)
 		if err != nil {
 			return nil, err
@@ -151,6 +170,9 @@ func normalize(in *Resume) {
 	if in.Files == nil {
 		in.Files = map[string]string{}
 	}
+	if in.Assets == nil {
+		in.Assets = map[string]string{}
+	}
 }
 
 // normalizeJSON 保证 JSONB 列非 null。
@@ -161,20 +183,42 @@ func normalizeJSON(b json.RawMessage) []byte {
 	return []byte(b)
 }
 
+func assetsFromContent(content json.RawMessage) map[string]string {
+	var data struct {
+		Basics struct {
+			AvatarBase64 string `json:"avatarBase64"`
+		} `json:"basics"`
+	}
+	if json.Unmarshal(content, &data) != nil || data.Basics.AvatarBase64 == "" {
+		return nil
+	}
+	name := "avatar.jpg"
+	if strings.HasPrefix(data.Basics.AvatarBase64, "data:image/png;base64,") {
+		name = "avatar.png"
+	} else if strings.HasPrefix(data.Basics.AvatarBase64, "data:image/webp;base64,") {
+		name = "avatar.webp"
+	}
+	return map[string]string{name: data.Basics.AvatarBase64}
+}
+
 // scanOne 从单行读出 Resume。列顺序必须与 resumeCols 一致。
 type scanFn func(dest ...any) error
 
 func scanOne(scan scanFn) (*Resume, error) {
 	var (
-		r           Resume
-		filesRaw    []byte
-		contentRaw  []byte
+		r          Resume
+		filesRaw   []byte
+		assetsRaw  []byte
+		contentRaw []byte
 	)
-	if err := scan(&r.ClientID, &r.Name, &r.Mode, &contentRaw, &r.ActiveFile, &filesRaw, &r.CreatedAt, &r.UpdatedAt); err != nil {
+	if err := scan(&r.ClientID, &r.Name, &r.Mode, &contentRaw, &r.ActiveFile, &filesRaw, &assetsRaw, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(filesRaw, &r.Files); err != nil {
 		return nil, fmt.Errorf("decode files: %w", err)
+	}
+	if err := json.Unmarshal(assetsRaw, &r.Assets); err != nil {
+		return nil, fmt.Errorf("decode assets: %w", err)
 	}
 	r.Content = json.RawMessage(contentRaw)
 	return &r, nil
