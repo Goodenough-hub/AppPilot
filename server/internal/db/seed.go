@@ -31,11 +31,12 @@ var expenseTree = []seedNode{
 		{Name: "公交", Icon: "🚌", Color: "#10B981", Order: 101},
 		{Name: "打车", Icon: "🚕", Color: "#F59E0B", Order: 102},
 		{Name: "高铁", Icon: "🚄", Color: "#6366F1", Order: 103},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 104},
+		{Name: "电瓶车充电", Icon: "🔋", Color: "#10B981", Order: 104},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 105},
 	}},
 	{Name: "购物", Icon: "🛍️", Color: "#8B5CF6", Order: 2, Children: []seedNode{
 		{Name: "京东", Icon: "brand:jd", Color: "#E1251B", Order: 100},
-		{Name: "淘宝", Icon: "brand:taobao", Color: "#FF4200", Order: 101},
+		{Name: "淘宝", Icon: "brand:taobao", Color: "#FF6900", Order: 101},
 		{Name: "拼多多", Icon: "brand:pinduoduo", Color: "#E02E24", Order: 102},
 		{Name: "抖音", Icon: "brand:douyin", Color: "#000000", Order: 103},
 		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 104},
@@ -118,7 +119,7 @@ var expenseTree = []seedNode{
 		{Name: "软件订阅", Icon: "📦", Color: "#8B5CF6", Order: 102},
 		{Name: "云服务", Icon: "☁️", Color: "#F59E0B", Order: 103},
 		{Name: "通讯", Icon: "📱", Color: "#3B82F6", Order: 104},
-		{Name: "微信读书订阅", Icon: "📖", Color: "#10B981", Order: 105},
+		{Name: "微信读书订阅", Icon: "brand:weread", Color: "#24A5FF", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
 	{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 9},
@@ -127,16 +128,39 @@ var expenseTree = []seedNode{
 var incomeTree = []seedNode{
 	{Name: "工资", Icon: "💰", Color: "#10B981", Order: 0},
 	{Name: "投资", Icon: "📈", Color: "#3B82F6", Order: 1, Children: []seedNode{
-		{Name: "余额宝收益", Icon: "💰", Color: "#10B981", Order: 100},
-		{Name: "零钱通收益", Icon: "💵", Color: "#10B981", Order: 101},
+		{Name: "余额宝收益", Icon: "brand:alipay", Color: "#1677FF", Order: 100},
+		{Name: "零钱通收益", Icon: "brand:wechat", Color: "#07C160", Order: 101},
 		{Name: "理财收益", Icon: "📈", Color: "#10B981", Order: 102},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 103},
 	}},
 	{Name: "兼职", Icon: "💼", Color: "#8B5CF6", Order: 2},
 	{Name: "退款", Icon: "↩️", Color: "#10B981", Order: 3},
-	{Name: "报销", Icon: "🧾", Color: "#3B82F6", Order: 4},
+	{Name: "报销", Icon: "🧾", Color: "#3B82F6", Order: 4, Children: []seedNode{
+		{Name: "公司报销", Icon: "🏢", Color: "#3B82F6", Order: 100},
+		{Name: "学校报销", Icon: "🎓", Color: "#3B82F6", Order: 101},
+		{Name: "其他报销", Icon: "🧾", Color: "#3B82F6", Order: 102},
+	}},
 	{Name: "他人转入", Icon: "🤝", Color: "#8B5CF6", Order: 5},
-	{Name: "其他收入", Icon: "⋯", Color: "#6B7280", Order: 6},
+	{Name: "二手卖出", Icon: "📦", Color: "#F59E0B", Order: 6, Children: []seedNode{
+		{Name: "闲鱼", Icon: "brand:xianyu", Color: "#FFE600", Order: 100},
+		{Name: "爱回收", Icon: "brand:aihuishou", Color: "#FFD100", Order: 101},
+		{Name: "转转", Icon: "brand:zhuanzhuan", Color: "#FF4B41", Order: 102},
+		{Name: "线下回收", Icon: "🏪", Color: "#F59E0B", Order: 103},
+		{Name: "熟人交易", Icon: "🤝", Color: "#F59E0B", Order: 104},
+		{Name: "其他平台", Icon: "📦", Color: "#F59E0B", Order: 105},
+	}},
+	{Name: "礼金红包", Icon: "🧧", Color: "#EF4444", Order: 7, Children: []seedNode{
+		{Name: "节日红包", Icon: "🧧", Color: "#EF4444", Order: 100},
+		{Name: "生日红包", Icon: "🎂", Color: "#EF4444", Order: 101},
+		{Name: "礼金", Icon: "🎁", Color: "#EF4444", Order: 102},
+		{Name: "其他", Icon: "⋯", Color: "#EF4444", Order: 103},
+	}},
+	{Name: "奖励返现", Icon: "🎉", Color: "#10B981", Order: 8, Children: []seedNode{
+		{Name: "活动奖励", Icon: "🎉", Color: "#10B981", Order: 100},
+		{Name: "消费返现", Icon: "💰", Color: "#10B981", Order: 101},
+		{Name: "其他", Icon: "⋯", Color: "#10B981", Order: 102},
+	}},
+	{Name: "其他收入", Icon: "⋯", Color: "#6B7280", Order: 9},
 }
 
 type defaultAccount struct {
@@ -832,8 +856,18 @@ var categoryBrandRewrites = []struct {
 	Icon  string
 	Color string
 }{
+	{"闲鱼", "brand:xianyu", "#FFE600"},
+	{"爱回收", "brand:aihuishou", "#FFD100"},
+	{"转转", "brand:zhuanzhuan", "#FF4B41"},
+	{"微信读书订阅", "brand:weread", "#24A5FF"},
+	{"微信读书", "brand:weread", "#24A5FF"},
+	{"余额宝收益", "brand:alipay", "#1677FF"},
+	{"零钱通收益", "brand:wechat", "#07C160"},
+	{"阿里云盘", "brand:aliyunpan", "#FF6A00"},
+	{"天翼云盘", "brand:tianyipan", "#EA1113"},
+	{"哔哩哔哩", "brand:bilibili", "#00A1D6"},
 	{"京东", "brand:jd", "#E1251B"},
-	{"淘宝", "brand:taobao", "#FF4200"},
+	{"淘宝", "brand:taobao", "#FF6900"},
 	{"拼多多", "brand:pinduoduo", "#E02E24"},
 	{"抖音", "brand:douyin", "#000000"},
 	{"王者荣耀", "brand:wangzhe", "#B99154"},
@@ -855,7 +889,7 @@ var categoryBrandRewrites = []struct {
 // migrateCategoryIconsToBrand 把老用户库里"平台子分类"的 icon 从 emoji 升级为
 // 品牌 slug（如 京东.icon 从 📦 → brand:jd），并同步色值到官方品牌色。
 // 只更新 icon 仍以 emoji 存储的行（NOT LIKE 'brand:%'），已是品牌 icon 的行跳过，
-// 天然幂等；用户已自改 icon 的行也保留其自定义。
+// 天然幂等；已有品牌 icon 的行保持原样。
 func migrateCategoryIconsToBrand(db *sql.DB) error {
 	for _, r := range categoryBrandRewrites {
 		if _, err := db.Exec(

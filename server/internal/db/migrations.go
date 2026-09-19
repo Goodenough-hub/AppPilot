@@ -218,6 +218,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateIncomeAddRefundReimburseTransferIn(db); err != nil {
 		return err
 	}
+	// 日常分类补齐电瓶车充电、报销来源、二手卖出、礼金红包和奖励返现。
+	if err := migrateCategoryExpansion(db); err != nil {
+		return err
+	}
 	// 业务迁移：平台子分类 icon 从 emoji 升级为品牌 slug（brand:<slug>）
 	if err := migrateCategoryIconsToBrand(db); err != nil {
 		return err

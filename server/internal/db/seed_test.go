@@ -192,7 +192,7 @@ func TestIncomeTreeHasRefundReimburseTransferIn(t *testing.T) {
 		names[i] = c.Name
 		orderByName[c.Name] = c.Order
 	}
-	want := []string{"工资", "投资", "兼职", "退款", "报销", "他人转入", "其他收入"}
+	want := []string{"工资", "投资", "兼职", "退款", "报销", "他人转入", "二手卖出", "礼金红包", "奖励返现", "其他收入"}
 	for i, w := range want {
 		if i >= len(names) || names[i] != w {
 			t.Errorf("incomeTree[%d] 期望 %q，实际 %v", i, w, names)
@@ -314,4 +314,27 @@ func TestTripGroupsSeed(t *testing.T) {
 			t.Errorf("「%s」组 type 应为 expense", gname)
 		}
 	}
+}
+
+func TestAllPlatformSeedsMatchBrandMigration(t *testing.T) {
+	rewrites := map[string]string{}
+	for _, r := range categoryBrandRewrites {
+		rewrites[r.Name] = r.Icon
+	}
+	for _, name := range []string{"闲鱼", "爱回收", "转转", "微信读书订阅", "余额宝收益", "零钱通收益"} {
+		if rewrites[name] == "" {
+			t.Fatalf("缺少平台迁移: %s", name)
+		}
+	}
+	var visit func([]seedNode)
+	visit = func(nodes []seedNode) {
+		for _, node := range nodes {
+			if want := rewrites[node.Name]; want != "" && node.Icon != want {
+				t.Errorf("%s 图标 %s 与迁移 %s 不一致", node.Name, node.Icon, want)
+			}
+			visit(node.Children)
+		}
+	}
+	visit(expenseTree)
+	visit(incomeTree)
 }
