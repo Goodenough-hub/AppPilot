@@ -173,6 +173,11 @@ func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
 	assertChain(t, subs, "抖音", "外卖")
 }
 
+func TestExpenseTreeShoppingHasGiftCardsAndCoupons(t *testing.T) {
+	subs := childrenOf(t, "购物")
+	assertChain(t, subs, "线下购物", "礼品卡/优惠券", "其他")
+}
+
 func TestExpenseTreeHousingSplitsWaterAndElectricity(t *testing.T) {
 	subs := childrenOf(t, "住房")
 	assertChain(t, subs, "租金", "水费", "电费", "物业", "酒店", "其他")

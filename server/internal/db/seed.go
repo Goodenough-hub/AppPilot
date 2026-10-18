@@ -41,7 +41,8 @@ var expenseTree = []seedNode{
 		{Name: "抖音", Icon: "brand:douyin", Color: "#000000", Order: 103},
 		{Name: "外卖", Icon: "🛵", Color: "#F97316", Order: 104},
 		{Name: "线下购物", Icon: "🏬", Color: "#8B5CF6", Order: 105},
-		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
+		{Name: "礼品卡/优惠券", Icon: "🎁", Color: "#EC4899", Order: 106},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 107},
 	}},
 	{Name: "生活", Icon: "🧴", Color: "#14B8A6", Order: 3, Children: []seedNode{
 		{Name: "理发", Icon: "✂️", Color: "#14B8A6", Order: 100},
@@ -95,6 +96,7 @@ var expenseTree = []seedNode{
 			{Name: "夸克网盘", Icon: "brand:quarkpan", Color: "#4A90FF", Order: 504},
 			{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 505},
 		}},
+		{Name: "景区门票", Icon: "🎟️", Color: "#F59E0B", Order: 550},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 600},
 	}},
 	{Name: "医疗", Icon: "⚕️", Color: "#EF4444", Order: 6, Children: []seedNode{

@@ -190,6 +190,12 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：老用户「购物」补「礼品卡/优惠券」（线下购物后）
+	if err := migrateInsertAfterParent(db, "购物", "线下购物", []seedNode{
+		{Name: "礼品卡/优惠券", Icon: "🎁", Color: "#EC4899"},
+	}); err != nil {
+		return err
+	}
 	// Split the legacy housing utility category while preserving existing references.
 	if err := migrateSplitHousingUtilities(db); err != nil {
 		return err
@@ -220,6 +226,12 @@ func Migrate(db *sql.DB) error {
 	}
 	// 日常分类补齐电瓶车充电、报销来源、二手卖出、礼金红包和奖励返现。
 	if err := migrateCategoryExpansion(db); err != nil {
+		return err
+	}
+	// 业务迁移：老用户「娱乐」补「景区门票」（网盘后）
+	if err := migrateInsertAfterParent(db, "娱乐", "网盘", []seedNode{
+		{Name: "景区门票", Icon: "🎟️", Color: "#F59E0B"},
+	}); err != nil {
 		return err
 	}
 	// 业务迁移：平台子分类 icon 从 emoji 升级为品牌 slug（brand:<slug>）
