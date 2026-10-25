@@ -124,7 +124,13 @@ var expenseTree = []seedNode{
 		{Name: "微信读书订阅", Icon: "brand:weread", Color: "#24A5FF", Order: 105},
 		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 106},
 	}},
-	{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 9},
+	{Name: "社保公积金", Icon: "🛡️", Color: "#0EA5E9", Order: 9, Children: []seedNode{
+		{Name: "医疗保险", Icon: "🏥", Color: "#3B82F6", Order: 100},
+		{Name: "养老保险", Icon: "💰", Color: "#F59E0B", Order: 101},
+		{Name: "商业保险", Icon: "📄", Color: "#8B5CF6", Order: 102},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 103},
+	}},
+	{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 10},
 }
 
 var incomeTree = []seedNode{
@@ -627,7 +633,7 @@ func migrateLifeTree(db *sql.DB) error {
 // migrateReorderLifeBeforeHousing 把顶级「生活」从末尾（Order 8）移到「购物」(2)
 // 之后、「住房」之前，并把住房/娱乐/医疗/教育/数字服务各 +1（→4/5/6/7/8），
 // 其他保持 9。顺带把图标从 🌿 改为 🧴（seed 调整）。
-// 标准顺序：餐饮0 交通1 购物2 生活3 住房4 娱乐5 医疗6 教育7 数字服务8 其他9。
+// 标准顺序：餐饮0 交通1 购物2 生活3 住房4 娱乐5 医疗6 教育7 数字服务8 社保公积金9 其他10。
 // 幂等：生活已为 Order 3 则跳过。
 func migrateReorderLifeBeforeHousing(db *sql.DB) error {
 	rows, err := db.Query(
@@ -698,6 +704,105 @@ func migrateReorderLifeBeforeHousing(db *sql.DB) error {
 		); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("update 生活 icon: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateInsuranceTree 为老用户补「社保公积金」顶级分类（医疗/养老/商业保险 + 其他），
+// 插在「数字服务」(8) 后，顶级「其他」sort_order 调到 10。
+// 幂等：已有「社保公积金」则跳过。
+func migrateInsuranceTree(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT id, user_id FROM categories WHERE name = '社保公积金' AND type = 'expense' AND parent_id IS NULL`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type u struct {
+		ID     int64
+		UserID int64
+	}
+	var existing []u
+	for rows.Next() {
+		var x u
+		if err := rows.Scan(&x.ID, &x.UserID); err != nil {
+			return err
+		}
+		existing = append(existing, x)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	alreadyUsers := make(map[int64]bool, len(existing))
+	for _, x := range existing {
+		alreadyUsers[x.UserID] = true
+	}
+
+	userRows, err := db.Query(`SELECT DISTINCT user_id FROM categories`)
+	if err != nil {
+		return err
+	}
+	defer userRows.Close()
+	var userIDs []int64
+	for userRows.Next() {
+		var uid int64
+		if err := userRows.Scan(&uid); err != nil {
+			return err
+		}
+		userIDs = append(userIDs, uid)
+	}
+	if err := userRows.Err(); err != nil {
+		return err
+	}
+
+	tree := []seedNode{
+		{Name: "医疗保险", Icon: "🏥", Color: "#3B82F6", Order: 100},
+		{Name: "养老保险", Icon: "💰", Color: "#F59E0B", Order: 101},
+		{Name: "商业保险", Icon: "📄", Color: "#8B5CF6", Order: 102},
+		{Name: "其他", Icon: "⋯", Color: "#6B7280", Order: 103},
+	}
+
+	for _, uid := range userIDs {
+		if alreadyUsers[uid] {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		var rootID int64
+		err = tx.QueryRow(
+			`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
+			 VALUES ($1, '社保公积金', 'expense', '🛡️', '#0EA5E9', 9, TRUE, NULL) RETURNING id`,
+			uid,
+		).Scan(&rootID)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("insert 社保公积金: %w", err)
+		}
+		for _, child := range tree {
+			if _, err := tx.Exec(
+				`INSERT INTO categories (user_id, name, type, icon, color_hex, sort_order, is_system, parent_id)
+				 VALUES ($1, $2, 'expense', $3, $4, $5, TRUE, $6)`,
+				uid, child.Name, child.Icon, child.Color, child.Order, rootID,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("insert 社保公积金·%s: %w", child.Name, err)
+			}
+		}
+		// 顶级「其他」sort_order 调到 10（原来 9），让社保公积金排前面
+		if _, err := tx.Exec(
+			`UPDATE categories SET sort_order = 10
+			 WHERE user_id = $1 AND name = '其他' AND type = 'expense' AND parent_id IS NULL`,
+			uid,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("update 其他 sort_order: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
 			return err

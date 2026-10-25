@@ -343,3 +343,26 @@ func TestAllPlatformSeedsMatchBrandMigration(t *testing.T) {
 	visit(expenseTree)
 	visit(incomeTree)
 }
+
+func TestExpenseTreeSocialInsurance(t *testing.T) {
+	// 顶级「社保公积金」位于「数字服务」之后、「其他」之前
+	rootIdx := map[string]int{}
+	for i, n := range expenseTree {
+		rootIdx[n.Name] = i
+	}
+	if _, ok := rootIdx["社保公积金"]; !ok {
+		t.Fatal("expenseTree 缺少顶级「社保公积金」")
+	}
+	if !(rootIdx["数字服务"] < rootIdx["社保公积金"] && rootIdx["社保公积金"] < rootIdx["其他"]) {
+		t.Errorf("顶级顺序应为 数字服务 < 社保公积金 < 其他，实际: %v", rootIdx)
+	}
+	// 顶级 sort_order 连续递增（餐饮 0 … 其他 10）
+	for i := 1; i < len(expenseTree); i++ {
+		if expenseTree[i].Order != expenseTree[i-1].Order+1 {
+			t.Errorf("顶级 sort_order 不连续于位置 %d: %d -> %d", i, expenseTree[i-1].Order, expenseTree[i].Order)
+		}
+	}
+
+	subs := childrenOf(t, "社保公积金")
+	assertChain(t, subs, "医疗保险", "养老保险", "商业保险", "其他")
+}

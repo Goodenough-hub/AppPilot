@@ -234,6 +234,10 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：老用户补「社保公积金」顶级分类（医疗/养老/商业保险）
+	if err := migrateInsuranceTree(db); err != nil {
+		return err
+	}
 	// 业务迁移：平台子分类 icon 从 emoji 升级为品牌 slug（brand:<slug>）
 	if err := migrateCategoryIconsToBrand(db); err != nil {
 		return err
