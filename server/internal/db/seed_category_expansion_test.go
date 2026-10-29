@@ -71,3 +71,47 @@ func TestPlanCategoryAdditions(t *testing.T) {
 		}
 	})
 }
+
+func TestLifeTransferDefault(t *testing.T) {
+	subs := childrenOf(t, "生活")
+	assertChain(t, subs, "捐赠", "转账", "其他")
+	var transfer seedNode
+	count := 0
+	for _, node := range subs {
+		if node.Name == "转账" {
+			transfer = node
+			count++
+		}
+	}
+	if count != 1 || transfer.Icon != "💸" || transfer.Color != "#14B8A6" {
+		t.Fatalf("生活应包含唯一的转账分类并带有默认图标颜色: %+v", subs)
+	}
+
+	t.Run("老账号保留分类身份并在其他之前插入且重复执行不改变结果", func(t *testing.T) {
+		existing := []categorySibling{
+			{ID: 11, seedNode: seedNode{Name: "捐赠", Order: 103}},
+			{ID: 12, seedNode: seedNode{Name: "其他", Order: 104}},
+		}
+		got := planCategoryAdditions(existing, []seedNode{transfer})
+		if len(got) != 3 || got[0].ID != 11 || got[0].Order != 103 || got[1].ID != 12 || got[1].Order != 105 || got[2].Name != "转账" || got[2].Order != 104 {
+			t.Fatalf("补分类结果不符: %+v", got)
+		}
+		if !reflect.DeepEqual(got, planCategoryAdditions(got, []seedNode{transfer})) {
+			t.Fatal("重复迁移不应产生重复分类或再次改变顺序")
+		}
+	})
+
+	t.Run("缺少默认兄弟分类时仍可以补充转账", func(t *testing.T) {
+		got := planCategoryAdditions(nil, []seedNode{transfer})
+		if len(got) != 1 || got[0].Name != "转账" || got[0].Order != 104 {
+			t.Fatalf("空列表补分类结果不符: %+v", got)
+		}
+	})
+
+	t.Run("保留用户已有同名分类及自定义顺序", func(t *testing.T) {
+		existing := []categorySibling{{ID: 20, seedNode: seedNode{Name: "转账", Order: 8}}}
+		if got := planCategoryAdditions(existing, []seedNode{transfer}); !reflect.DeepEqual(existing, got) {
+			t.Fatalf("不应替换已有同名分类: %+v", got)
+		}
+	})
+}

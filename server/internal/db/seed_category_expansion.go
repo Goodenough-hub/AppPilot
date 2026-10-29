@@ -148,6 +148,19 @@ func migrateCategoryExpansion(db *sql.DB) error {
 					return err
 				}
 			}
+			var lifeID int64
+			err = tx.QueryRow(`SELECT id FROM categories WHERE user_id = $1 AND type = 'expense'
+				AND scope = 'normal' AND parent_id IS NULL AND name = '生活' ORDER BY is_system DESC, id LIMIT 1`, userID).Scan(&lifeID)
+			if err != nil && err != sql.ErrNoRows {
+				return err
+			}
+			if err == nil {
+				if err := ensureCategoryAdditions(tx, userID, "expense", sql.NullInt64{Int64: lifeID, Valid: true}, []seedNode{
+					{Name: "转账", Icon: "💸", Color: "#14B8A6", Order: 104},
+				}); err != nil {
+					return err
+				}
+			}
 			if err := ensureCategoryAdditions(tx, userID, "income", sql.NullInt64{}, incomes); err != nil {
 				return err
 			}
