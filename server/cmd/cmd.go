@@ -16,6 +16,7 @@ import (
 	"apppilot-server/internal/finflow"
 	"apppilot-server/internal/hub"
 	"apppilot-server/internal/middleware"
+	"apppilot-server/internal/oj"
 	"apppilot-server/internal/typresume"
 	"apppilot-server/pkg/config"
 
@@ -145,6 +146,11 @@ func serve(cfg *config.Config) error {
 			middleware.AppScopeRequired("hub"),
 		),
 	)
+
+	ojHandler := oj.NewHandler(oj.NewRepository(pg))
+	ojHandler.RegisterPublic(v1.Group("/oj"))
+	ojHandler.RegisterUser(v1.Group("/oj", middleware.AuthRequired(cfg.JWTSecret), middleware.AppScopeRequired("oj")))
+	ojHandler.RegisterAdmin(v1.Group("/admin/oj", middleware.AuthRequired(cfg.JWTSecret), middleware.AdminRequired()))
 
 	klog.Infof("listening on %s", cfg.Address)
 	return r.Run(cfg.Address)

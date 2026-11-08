@@ -306,6 +306,9 @@ CREATE INDEX IF NOT EXISTS idx_dw_dashboard ON dashboard_widgets(dashboard_id, s
 	if err := MigrateHub(db); err != nil {
 		return err
 	}
+	if err := MigrateOJ(db); err != nil {
+		return err
+	}
 	// 默认看板 seed：为每个已知 app 创建默认 dashboard + widgets（幂等）。
 	if err := SeedDashboards(db); err != nil {
 		return err
