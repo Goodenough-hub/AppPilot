@@ -242,6 +242,10 @@ func Migrate(db *sql.DB) error {
 	if err := migrateCategoryIconsToBrand(db); err != nil {
 		return err
 	}
+	// 业务迁移：老用户「生活」补「饮用水」「话费」「文印」，旧「快递」改名「快递费」
+	if err := migrateLifeUtilityChildren(db); err != nil {
+		return err
+	}
 	// 管理后台页面分析：前端埋点事件表
 	if _, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS analytics_events (

@@ -103,7 +103,7 @@ func TestLifeTransferDefault(t *testing.T) {
 
 	t.Run("缺少默认兄弟分类时仍可以补充转账", func(t *testing.T) {
 		got := planCategoryAdditions(nil, []seedNode{transfer})
-		if len(got) != 1 || got[0].Name != "转账" || got[0].Order != 104 {
+		if len(got) != 1 || got[0].Name != "转账" || got[0].Order != transfer.Order {
 			t.Fatalf("空列表补分类结果不符: %+v", got)
 		}
 	})
