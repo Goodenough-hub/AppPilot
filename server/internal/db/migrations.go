@@ -196,6 +196,12 @@ func Migrate(db *sql.DB) error {
 	}); err != nil {
 		return err
 	}
+	// 业务迁移：老用户「购物」补「闲鱼」（抖音后）
+	if err := migrateInsertAfterParent(db, "购物", "抖音", []seedNode{
+		{Name: "闲鱼", Icon: "brand:xianyu", Color: "#FFE600"},
+	}); err != nil {
+		return err
+	}
 	// Split the legacy housing utility category while preserving existing references.
 	if err := migrateSplitHousingUtilities(db); err != nil {
 		return err

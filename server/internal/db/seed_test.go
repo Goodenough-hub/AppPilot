@@ -169,8 +169,31 @@ func TestExpenseTreeShoppingHasTakeout(t *testing.T) {
 	if !found {
 		t.Errorf("购物子分类缺少「外卖」")
 	}
-	// 外卖位于抖音之后，其他之前；sort_order 连续
-	assertChain(t, subs, "抖音", "外卖")
+	// 外卖位于闲鱼之后，其他之前；sort_order 连续
+	assertChain(t, subs, "闲鱼", "外卖")
+}
+
+func TestExpenseTreeShoppingHasXianyu(t *testing.T) {
+	subs := childrenOf(t, "购物")
+
+	found := false
+	for _, c := range subs {
+		if c.Name == "闲鱼" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("购物子分类缺少「闲鱼」")
+	}
+	// 闲鱼位于抖音之后、外卖之前；sort_order 连续
+	assertChain(t, subs, "抖音", "闲鱼", "外卖")
+
+	for _, c := range subs {
+		if c.Name == "闲鱼" && c.Icon != "brand:xianyu" {
+			t.Errorf("「闲鱼」应使用品牌图标 brand:xianyu，实际 %s", c.Icon)
+		}
+	}
 }
 
 func TestExpenseTreeShoppingHasGiftCardsAndCoupons(t *testing.T) {
